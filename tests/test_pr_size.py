@@ -73,6 +73,22 @@ def test_ignora_html_generado_por_archify_pero_cuenta_su_fuente() -> None:
     assert (files, added, deleted) == (2, 122, 0)
 
 
+def test_ignora_svg_exportado_de_archify_en_la_carpeta_de_arquitectura() -> None:
+    # Arrange
+    numstat = (
+        "5200\t0\tdocs/arquitectura/general.svg\n"
+        "9000\t0\tdocs/arquitectura/general.html\n"
+        "140\t0\tdocs/arquitectura/general.json\n"
+        "12\t0\tdocs/brand/logo.svg\n"
+    )
+
+    # Act
+    files, added, deleted = pr_size.parse_numstat(numstat)
+
+    # Assert
+    assert (files, added, deleted) == (2, 152, 0)
+
+
 def test_lo_escrito_por_el_equipo_siempre_cuenta() -> None:
     # Arrange
     numstat = (

@@ -1,0 +1,866 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Carvajal: arquitectura general",
+    "locale": "es",
+    "output": "docs/arquitectura/general.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/almeneses/carvajal.git",
+      "link_mode": "web",
+      "revision": "c730180ce327562b052035a046acce2813fa079e"
+    }
+  },
+  "components": [
+    {
+      "id": "navegador",
+      "type": "frontend",
+      "label": "Navegador",
+      "sublabel": "chat HTMX + SSE · voz",
+      "explanation": "El shell Jinja2/HTMX abre el turno con POST /chat/stream y lee la respuesta como eventos SSE. El dictado y la lectura usan la voz del navegador o, con VOICE_PROVIDER=openai y OPENAI_API_KEY, /api/voz/transcribir y /api/voz/hablar del servidor.",
+      "sources": [
+        {
+          "path": "apps/api/templates/base.html",
+          "line": 17,
+          "label": "htmx"
+        },
+        {
+          "path": "apps/api/static/chat-stream.js",
+          "line": 167,
+          "label": "POST /chat/stream"
+        },
+        {
+          "path": "apps/api/static/chat-voice.js",
+          "line": 1,
+          "end_line": 6,
+          "label": "voz"
+        }
+      ],
+      "pos": [
+        325,
+        40
+      ],
+      "size": [
+        170,
+        60
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "type": "external",
+      "label": "WhatsApp",
+      "sublabel": "mensajes del cliente",
+      "sources": [
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 13,
+          "end_line": 18,
+          "label": "camino"
+        }
+      ],
+      "pos": [
+        650,
+        40
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "openclaw",
+      "type": "external",
+      "label": "OpenClaw",
+      "sublabel": "gateway en VM aparte",
+      "explanation": "OpenClaw solo hace de gateway: su agente «ventas» pasa cada mensaje a la herramienta MCP consultar_carvajal y reenvía la respuesta. Llega al servidor MCP por un túnel SSH restringido al puerto 8765 del VPS.",
+      "href": "whatsapp.html",
+      "sources": [
+        {
+          "path": "docs/whatsapp-openclaw.md",
+          "line": 3,
+          "end_line": 18,
+          "label": "relé y túnel SSH"
+        },
+        {
+          "path": "openclaw/README.md",
+          "line": 1,
+          "end_line": 6,
+          "label": "workspace"
+        }
+      ],
+      "pos": [
+        635,
+        150
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "apps/mcp",
+      "sublabel": "consultar_carvajal · :8765",
+      "tag": "perfil whatsapp",
+      "explanation": "Servidor MCP propio (Streamable HTTP) con una sola herramienta. /mcp exige Authorization: Bearer MCP_TOKEN comparado en tiempo constante y solo acepta Host de loopback; sin MCP_TOKEN no arranca. Corre como servicio mcp aparte, con su propio ChatService y agente.",
+      "href": "whatsapp.html",
+      "sources": [
+        {
+          "path": "apps/mcp/server.py",
+          "line": 1,
+          "end_line": 21,
+          "label": "seguridad"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 140,
+          "end_line": 180,
+          "label": "consultar_carvajal"
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 266,
+          "end_line": 295,
+          "label": "servicio mcp"
+        }
+      ],
+      "pos": [
+        630,
+        280
+      ],
+      "size": [
+        180,
+        72
+      ]
+    },
+    {
+      "id": "fastapi",
+      "type": "backend",
+      "label": "FastAPI apps/api",
+      "sublabel": ":8000 · shell, API y webhook",
+      "explanation": "Un solo proceso sirve el shell, la API JSON, el streaming SSE, el webhook firmado, la voz y los PDF. POST /chat/stream comprueba CSRF y cobra el cupo diario antes de abrir el turno; el webhook comprueba la firma HMAC y la allowlist E.164 y solo existe con WEBHOOK_SECRET.",
+      "drilldowns": [
+        {
+          "href": "despliegue.html",
+          "label": "Despliegue en producción"
+        }
+      ],
+      "sources": [
+        {
+          "path": "apps/api/main.py",
+          "line": 333,
+          "end_line": 350,
+          "label": "routers"
+        },
+        {
+          "path": "apps/api/views/stream.py",
+          "line": 66,
+          "end_line": 108,
+          "label": "CSRF y cupo"
+        },
+        {
+          "path": "apps/api/views/webhooks.py",
+          "line": 216,
+          "end_line": 259,
+          "label": "webhook"
+        }
+      ],
+      "pos": [
+        300,
+        280
+      ],
+      "size": [
+        210,
+        72
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "WhatsAppBridge",
+      "sublabel": "owner_key = HMAC(número)",
+      "explanation": "Puente compartido por el servidor MCP y el webhook: el número nunca se guarda en claro (owner_key = HMAC con SESSION_SECRET), cobra en PostgreSQL el mismo cupo diario por chat, ejecuta el turno completo de ChatService y pasa la respuesta a formato de WhatsApp sin LLM.",
+      "href": "whatsapp.html",
+      "sources": [
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 1,
+          "end_line": 11,
+          "label": "puente"
+        },
+        {
+          "path": "apps/mcp/bridge.py",
+          "line": 332,
+          "end_line": 342,
+          "label": "owner_key"
+        },
+        {
+          "path": "apps/mcp/server.py",
+          "line": 314,
+          "end_line": 320,
+          "label": "compartido"
+        }
+      ],
+      "pos": [
+        630,
+        410
+      ],
+      "size": [
+        180,
+        72
+      ]
+    },
+    {
+      "id": "chatservice",
+      "type": "backend",
+      "label": "ChatService",
+      "sublabel": "hilo · borrador · persistencia",
+      "explanation": "Único punto que mezcla el agente con la base: resuelve el hilo del dueño, consulta primero el flujo de cotización y pedido, ejecuta el agente si el flujo deja pasar el turno y guarda turno, folios y borrador en transacciones cortas.",
+      "href": "turno.html",
+      "sources": [
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1,
+          "end_line": 39,
+          "label": "contrato"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 598,
+          "end_line": 662,
+          "label": "preparación"
+        },
+        {
+          "path": "apps/api/chat/service.py",
+          "line": 1750,
+          "end_line": 1783,
+          "label": "pedido"
+        }
+      ],
+      "pos": [
+        300,
+        540
+      ],
+      "size": [
+        210,
+        72
+      ]
+    },
+    {
+      "id": "flow",
+      "type": "backend",
+      "label": "Flujo de cotización y pedido",
+      "sublabel": "reglas · Jev Choice si hay clave",
+      "explanation": "before_turn atiende sin el LLM la respuesta a la pregunta pendiente («sí», «la 2», nombre y correo, «¿Lo confirmo?»): primero las reglas y, si no deciden y el mensaje es corto, Jev Choice (con TYPESAFE_API_KEY y QUOTE_FLOW_JEV_ENABLED, activo por defecto; nunca en los pasos del pedido). Si nada decide, el turno pasa al agente. El paso del pedido solo se ofrece con el CRM configurado.",
+      "href": "pedido.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 1,
+          "end_line": 30,
+          "label": "orden de decisión"
+        },
+        {
+          "path": "packages/core/src/carvajal/quotation/flow.py",
+          "line": 119,
+          "end_line": 120,
+          "label": "pasos del pedido"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 307,
+          "end_line": 310,
+          "label": "Jev del flujo"
+        }
+      ],
+      "pos": [
+        20,
+        410
+      ],
+      "size": [
+        190,
+        72
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agente LangGraph",
+      "sublabel": "recall → shortcut → agent ⇄ tools",
+      "tag": "AGENT_MODE=tools",
+      "explanation": "Grafo del modo tools. Exige LLM_PROVIDER=deepseek y DEEPSEEK_API_KEY; si no, el chat sigue por el grafo routes. Si DeepSeek falla o vence el plazo, responde el respaldo determinista sin LLM.",
+      "href": "turno.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 1,
+          "end_line": 36,
+          "label": "nodos"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/graph.py",
+          "line": 998,
+          "end_line": 1012,
+          "label": "aristas"
+        },
+        {
+          "path": "apps/api/agent_runtime.py",
+          "line": 279,
+          "end_line": 322,
+          "label": "runtime"
+        }
+      ],
+      "pos": [
+        300,
+        680
+      ],
+      "size": [
+        210,
+        72
+      ]
+    },
+    {
+      "id": "gates",
+      "type": "security",
+      "label": "Gatekeeper y compuertas",
+      "sublabel": "reglas → Choice · evidencia → Noul",
+      "explanation": "En el nodo shortcut las reglas deciden primero; si no, Jev Choice (con JEV_ENABLED y TYPESAFE_API_KEY) limita las herramientas del turno; sin Jev el modelo elige entre las 20. Tras redactar, la compuerta determinista abstiene sin evidencia y, con Jev, la compuerta Noul sustituye la respuesta no respaldada por un reemplazo neutro o una abstención.",
+      "href": "turno.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/gatekeeper/decide.py",
+          "line": 1,
+          "end_line": 20,
+          "label": "gatekeeper"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/gatekeeper/decide.py",
+          "line": 158,
+          "end_line": 172,
+          "label": "umbrales"
+        },
+        {
+          "path": "apps/api/chat/agent.py",
+          "line": 570,
+          "end_line": 582,
+          "label": "compuertas"
+        }
+      ],
+      "pos": [
+        630,
+        680
+      ],
+      "size": [
+        180,
+        72
+      ],
+      "tag": "Jev con JEV_ENABLED"
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "20 herramientas @tool",
+      "sublabel": "corpus · catálogo · precios · memoria",
+      "explanation": "Consultas con esquema Pydantic declaradas en un registro único; el alcance que decide el gatekeeper limita cuáles ve el modelo en cada turno. Todas son deterministas salvo preguntas_frecuentes, que genera la FAQ con el LLM configurado y verifica cada entrada contra el corpus.",
+      "href": "turno.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/registry.py",
+          "line": 135,
+          "end_line": 312,
+          "label": "TOOLS"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/builtin.py",
+          "line": 398,
+          "end_line": 417,
+          "label": "recuperación"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/preguntas_frecuentes.py",
+          "line": 1,
+          "end_line": 7,
+          "label": "única con LLM"
+        }
+      ],
+      "pos": [
+        300,
+        820
+      ],
+      "size": [
+        210,
+        72
+      ]
+    },
+    {
+      "id": "odoo",
+      "type": "external",
+      "label": "Odoo 19",
+      "sublabel": "pedido de venta · correo · PDF",
+      "tag": "con ODOO_*",
+      "explanation": "Sin ODOO_URL, ODOO_DB y ODOO_API_KEY no se ofrece el pedido. Con ellas, el «sí» hace que ChatService cree por JSON-2 un pedido de venta confirmado, idempotente por folio; Odoo envía el correo de confirmación (si tiene SMTP) con el PDF, que también sirve GET /pedidos/{folio}.pdf.",
+      "href": "pedido.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/crm/odoo.py",
+          "line": 1,
+          "end_line": 26,
+          "label": "JSON-2"
+        },
+        {
+          "path": "packages/core/src/carvajal/adapters/crm/odoo.py",
+          "line": 682,
+          "end_line": 693,
+          "label": "build_orders"
+        },
+        {
+          "path": "docs/odoo-pedidos.md",
+          "line": 345,
+          "end_line": 348,
+          "label": "compose propio"
+        }
+      ],
+      "pos": [
+        630,
+        540
+      ],
+      "size": [
+        180,
+        72
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "chat · quotes · PostgresSaver/Store",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/storage/tables.py",
+          "line": 108,
+          "end_line": 294,
+          "label": "tablas"
+        },
+        {
+          "path": "apps/api/agent_runtime.py",
+          "line": 300,
+          "end_line": 308,
+          "label": "Saver y Store"
+        }
+      ],
+      "pos": [
+        20,
+        684
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "qdrant",
+      "type": "database",
+      "label": "Qdrant",
+      "sublabel": "colección carvajal_chunks",
+      "href": "corpus.html",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/vector/qdrant_store.py",
+          "line": 143,
+          "end_line": 157,
+          "label": "store"
+        },
+        {
+          "path": "apps/api/agent_runtime.py",
+          "line": 284,
+          "end_line": 290,
+          "label": "conexión"
+        }
+      ],
+      "pos": [
+        300,
+        964
+      ],
+      "size": [
+        210,
+        64
+      ]
+    },
+    {
+      "id": "datos",
+      "type": "database",
+      "label": "Catálogo y datos curados",
+      "sublabel": "data/catalog · commercial · gold",
+      "href": "corpus.html",
+      "sources": [
+        {
+          "path": "data/catalog"
+        },
+        {
+          "path": "packages/core/src/carvajal/commercial/loader.py",
+          "line": 1,
+          "end_line": 5,
+          "label": "catálogo y sedes"
+        },
+        {
+          "path": "packages/core/src/carvajal/agent/toolagent/tools/historia_carvajal.py",
+          "line": 1,
+          "end_line": 6,
+          "label": "data/gold/historia.md"
+        }
+      ],
+      "pos": [
+        630,
+        960
+      ],
+      "size": [
+        180,
+        72
+      ]
+    },
+    {
+      "id": "ollama",
+      "type": "backend",
+      "label": "Ollama",
+      "sublabel": "nomic-embed-text · 768 d",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/embeddings/ollama.py",
+          "line": 9,
+          "end_line": 55,
+          "label": "embedder"
+        },
+        {
+          "path": "compose.prod.yml",
+          "line": 344,
+          "end_line": 347,
+          "label": "servicio"
+        }
+      ],
+      "pos": [
+        20,
+        964
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "deepseek",
+      "type": "cloud",
+      "label": "DeepSeek API",
+      "sublabel": "LLM · bind_tools · temp. 0",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/llm/deepseek.py",
+          "line": 60,
+          "end_line": 71,
+          "label": "ChatOpenAI"
+        },
+        {
+          "path": "apps/api/agent_runtime.py",
+          "line": 249,
+          "end_line": 263,
+          "label": "modo tools"
+        }
+      ],
+      "pos": [
+        630,
+        824
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "jev",
+      "type": "cloud",
+      "label": "Jev · TypeSafe",
+      "sublabel": "System One: Choice y Noul",
+      "tag": "TYPESAFE_API_KEY",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/judge/jev.py",
+          "line": 1,
+          "end_line": 17,
+          "label": "cliente"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 269,
+          "end_line": 273,
+          "label": "JEV_ENABLED"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 492,
+          "end_line": 496,
+          "label": "jev_active"
+        }
+      ],
+      "pos": [
+        920,
+        684
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "openai",
+      "type": "cloud",
+      "label": "OpenAI voz",
+      "sublabel": "STT y TTS",
+      "tag": "VOICE_PROVIDER=openai",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/adapters/speech/openai.py",
+          "line": 1,
+          "end_line": 9,
+          "label": "STT/TTS"
+        },
+        {
+          "path": "apps/api/views/voz.py",
+          "line": 75,
+          "label": "/api/voz"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/settings.py",
+          "line": 523,
+          "end_line": 527,
+          "label": "clave requerida"
+        }
+      ],
+      "pos": [
+        20,
+        284
+      ],
+      "size": [
+        190,
+        64
+      ]
+    },
+    {
+      "id": "langsmith",
+      "type": "cloud",
+      "label": "LangSmith",
+      "sublabel": "trazas muestreadas",
+      "tag": "MONITORING_ENABLED + clave",
+      "sources": [
+        {
+          "path": "packages/core/src/carvajal/infrastructure/monitoring.py",
+          "line": 1,
+          "end_line": 15,
+          "label": "monitoreo"
+        },
+        {
+          "path": "packages/core/src/carvajal/infrastructure/monitoring.py",
+          "line": 342,
+          "end_line": 356,
+          "label": "build_client"
+        }
+      ],
+      "pos": [
+        20,
+        544
+      ],
+      "size": [
+        190,
+        64
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "web-turno",
+      "from": "navegador",
+      "to": "fastapi",
+      "label": "POST /chat/stream · SSE",
+      "variant": "emphasis"
+    },
+    {
+      "id": "wa-openclaw",
+      "from": "whatsapp",
+      "to": "openclaw",
+      "label": "mensaje",
+      "variant": "emphasis"
+    },
+    {
+      "id": "openclaw-mcp",
+      "from": "openclaw",
+      "to": "mcp",
+      "label": "MCP · Bearer MCP_TOKEN",
+      "variant": "security"
+    },
+    {
+      "id": "wa-webhook",
+      "from": "whatsapp",
+      "to": "fastapi",
+      "label": "relé alterno · HMAC + E.164",
+      "variant": "dashed"
+    },
+    {
+      "id": "mcp-bridge",
+      "from": "mcp",
+      "to": "bridge",
+      "label": "consult()"
+    },
+    {
+      "id": "webhook-bridge",
+      "from": "fastapi",
+      "to": "bridge",
+      "label": "webhook firmado"
+    },
+    {
+      "id": "bridge-chat",
+      "from": "bridge",
+      "to": "chatservice",
+      "label": "mismo turno",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "api-chat",
+      "from": "fastapi",
+      "to": "chatservice",
+      "label": "turno web",
+      "variant": "emphasis"
+    },
+    {
+      "id": "chat-flow",
+      "from": "chatservice",
+      "to": "flow",
+      "label": "before_turn"
+    },
+    {
+      "id": "chat-agent",
+      "from": "chatservice",
+      "to": "agent",
+      "label": "si el flujo no decide",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-gates",
+      "from": "agent",
+      "to": "gates",
+      "label": "decide y juzga"
+    },
+    {
+      "id": "agent-tools",
+      "from": "agent",
+      "to": "tools",
+      "label": "tool_calls",
+      "variant": "emphasis"
+    },
+    {
+      "id": "agent-deepseek",
+      "from": "agent",
+      "to": "deepseek",
+      "label": "chat + bind_tools",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "gates-jev",
+      "from": "gates",
+      "to": "jev",
+      "label": "Choice · Noul",
+      "variant": "dashed"
+    },
+    {
+      "id": "tools-ollama",
+      "from": "tools",
+      "to": "ollama",
+      "label": "embebe la consulta"
+    },
+    {
+      "id": "tools-qdrant",
+      "from": "tools",
+      "to": "qdrant",
+      "label": "búsqueda vectorial"
+    },
+    {
+      "id": "tools-datos",
+      "from": "tools",
+      "to": "datos",
+      "label": "lee CSV, JSON y MD",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "tools-postgres",
+      "from": "tools",
+      "to": "postgres",
+      "label": "lee quotes · memoria"
+    },
+    {
+      "id": "chat-postgres",
+      "from": "chatservice",
+      "to": "postgres",
+      "label": "turnos · folios"
+    },
+    {
+      "id": "chat-odoo",
+      "from": "chatservice",
+      "to": "odoo",
+      "label": "pedido · JSON-2",
+      "variant": "dashed"
+    },
+    {
+      "id": "api-openai",
+      "from": "fastapi",
+      "to": "openai",
+      "label": "/api/voz",
+      "variant": "dashed"
+    },
+    {
+      "id": "chat-langsmith",
+      "from": "chatservice",
+      "to": "langsmith",
+      "label": "traza",
+      "variant": "dashed"
+    },
+    {
+      "id": "agent-postgres",
+      "from": "agent",
+      "to": "postgres",
+      "label": "checkpoints"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Condiciones que cambian el camino",
+      "items": [
+        "AGENT_MODE=tools exige LLM_PROVIDER=deepseek y DEEPSEEK_API_KEY; si no, el chat sigue por routes",
+        "Jev del gatekeeper y de la compuerta Noul: JEV_ENABLED y TYPESAFE_API_KEY; sin él deciden las reglas y DeepSeek, y rige solo la compuerta determinista",
+        "Jev del flujo de cotización: basta TYPESAFE_API_KEY (QUOTE_FLOW_JEV_ENABLED, activo por defecto)",
+        "El pedido solo se ofrece con ODOO_URL, ODOO_DB y ODOO_API_KEY",
+        "Voz del servidor: VOICE_PROVIDER=openai y OPENAI_API_KEY; LangSmith: MONITORING_ENABLED y LANGSMITH_API_KEY",
+        "El webhook responde 404 sin WEBHOOK_SECRET; apps/mcp no arranca sin MCP_TOKEN"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Despliegue",
+      "items": [
+        "FastAPI, apps/mcp, PostgreSQL, Qdrant y Ollama corren en el VPS con compose.prod.yml; Odoo 19, en su propio compose del mismo VPS",
+        "apps/mcp es el servicio mcp (perfil whatsapp): otro proceso con su propio ChatService y agente",
+        "Un número tiene el mismo owner_key por MCP y por webhook: mismo hilo, memoria y cupo"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Documentos",
+      "items": [
+        "GET /cotizaciones/{folio}.pdf: enlace firmado (WhatsApp) o cookie del dueño (web)",
+        "GET /pedidos/{folio}.pdf: FastAPI pide a Odoo el PDF del pedido (503 sin Odoo)"
+      ]
+    }
+  ]
+}
