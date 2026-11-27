@@ -419,9 +419,17 @@ class OdooOrders:
             seen.add(line.code)
             values.append(self._product_values(line))
         if values:
-            created = self._odoo.create("product.product", values)
-            codes_created = [str(item["default_code"]) for item in values]
-            products.update(dict(zip(codes_created, created, strict=True)))
+            self._odoo.create("product.product", values)
+            # Se vuelven a leer por SKU: el pedido nunca depende del orden de los IDs creados.
+            again = self._odoo.search_read(
+                "product.product",
+                [["default_code", "in", [item["default_code"] for item in values]]],
+                ["id", "default_code"],
+            )
+            products.update({str(item["default_code"]): int(item["id"]) for item in again})
+            missing_codes = [line.code for line in lines if line.code not in products]
+            if missing_codes:
+                raise OdooError(f"Odoo no devolvió {len(missing_codes)} productos creados.")
         return products
 
     def _product_values(self, line: OrderLine) -> dict[str, Any]:

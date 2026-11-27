@@ -43,18 +43,18 @@ def _not_found() -> Response:
 def _order_pdf(request: Request) -> OrderPdf | None:
     """El lector del PDF en Odoo (inyectado o construido una vez); ``None`` sin Odoo."""
 
-    injected = getattr(request.app.state, "order_pdf", None)
-    if injected is not None:
-        return injected
+    state = request.app.state
+    if getattr(state, "order_pdf_built", False) or getattr(state, "order_pdf", None) is not None:
+        return getattr(state, "order_pdf", None)
     from carvajal.adapters.crm import build_orders
     from carvajal.infrastructure.settings import Settings
 
-    settings = getattr(request.app.state, "settings", None) or Settings()
+    settings = getattr(state, "settings", None) or Settings()
     orders = build_orders(settings)
-    if orders is None:
-        return None
-    request.app.state.order_pdf = orders.order_pdf
-    return orders.order_pdf
+    # Una vez por proceso, también sin Odoo: no se arma un cliente por descarga.
+    state.order_pdf = orders.order_pdf if orders is not None else None
+    state.order_pdf_built = True
+    return state.order_pdf
 
 
 def owner_order_link(request: Request) -> Callable[[str], str | None]:
@@ -83,6 +83,8 @@ def pedido_pdf(request: Request, folio: str, t: str = "") -> Response:
     expires, signature = split_token(t)
     visitor = None if t else _visitor(request)
     if len(folio) > 64 or not ((secret and signature) or visitor):
+        return _not_found()
+    if visitor is None and not secret:  # sin SESSION_SECRET ninguna firma vale
         return _not_found()
     lookup: QuoteLookup = getattr(request.app.state, "quote_lookup", None) or _default_lookup
     try:

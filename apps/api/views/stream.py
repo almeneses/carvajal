@@ -164,9 +164,9 @@ def _sse(
             cerrado = event.name in {"done", "error"}
             if event.name == "token":
                 # Un turno reemitido (mismo ``client_turn_id``) llega como un solo «token» con
-                # el texto guardado: también enlaza el PDF y el recibo. Un fragmento del
-                # modelo nunca trae la línea completa del folio y la promesa: queda igual.
-                if pdf_link is not None or receipt_link is not None:
+                # el texto guardado y ``replay``: también enlaza el PDF y el recibo. Los
+                # fragmentos del modelo no se tocan.
+                if event.data.get("replay") and (pdf_link is not None or receipt_link is not None):
                     event = _with_links_in_token(event, pdf_link, receipt_link)
                 fragments.append(str(event.data.get("text", "")))
             elif event.name == "fallback":

@@ -17,7 +17,7 @@ import json
 import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -1062,3 +1062,67 @@ def test_un_enlace_de_pedido_no_abre_el_pdf_de_la_cotizacion(engine: Any) -> Non
     assert quote_ok.status_code == 200
     assert quote_ok.content.startswith(b"%PDF-")
     assert crossed.status_code == 404
+
+
+# --- revisión de la PR #279 --------------------------------------------------------------
+
+
+def test_chat_provider_sigue_siendo_comprobable_en_tiempo_de_ejecucion() -> None:
+    # Arrange
+    from apps.api.chat.service import ChatProvider
+
+    # Act / Assert: ``isinstance`` con un protocolo sin ``@runtime_checkable`` lanza TypeError.
+    assert isinstance(object(), ChatProvider) is False
+
+
+def test_los_enlaces_solo_se_aplican_al_turno_reemitido() -> None:
+    # Arrange
+    from apps.api.views.stream import _sse
+
+    text = render.order_placed("S00001", "ana@correo.com", "COT-1")
+
+    class Provider:
+        def __init__(self, replay: bool) -> None:
+            self.replay = replay
+
+        def stream(self, *args: Any, **kwargs: Any) -> Any:
+            data: dict[str, Any] = {"text": text.text}
+            if self.replay:
+                data["replay"] = True
+            yield ChatEvent("token", data)
+            yield ChatEvent("done", {})
+
+    def link(folio: str) -> str:
+        return f"/pedidos/{folio}.pdf"
+
+    # Act
+    fresh = "".join(_sse(cast(Any, Provider(False)), "dueno", "sí", receipt_link=link))
+    replayed = "".join(_sse(cast(Any, Provider(True)), "dueno", "sí", receipt_link=link))
+
+    # Assert
+    assert "/pedidos/COT-1.pdf" not in fresh
+    assert "/pedidos/COT-1.pdf" in replayed
+
+
+def test_sin_odoo_el_lector_del_recibo_se_arma_una_sola_vez(monkeypatch: Any) -> None:
+    # Arrange
+    from types import SimpleNamespace
+
+    from apps.api.views import pedido_pdf
+    from carvajal.adapters import crm
+
+    calls: list[Any] = []
+
+    def fake_build(settings: Any) -> None:
+        calls.append(settings)
+
+    monkeypatch.setattr(crm, "build_orders", fake_build)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=object())))
+
+    # Act
+    first = pedido_pdf._order_pdf(cast(Any, request))
+    second = pedido_pdf._order_pdf(cast(Any, request))
+
+    # Assert
+    assert first is None and second is None
+    assert len(calls) == 1

@@ -72,7 +72,7 @@ from apps.api.chat.agent import (
 from apps.api.chat.products import has_cards, presented_options, result_quotes, safe_render_products
 from apps.api.chat.streaming import ChatEvent
 from apps.api.chat.summary_worker import SummaryWorker, build_summary_worker
-from carvajal.adapters.crm import OdooError, OrderResult, build_orders
+from carvajal.adapters.crm import OrderResult, build_orders
 from carvajal.adapters.judge import build_reply_judge
 from carvajal.adapters.storage.chat import (
     ChatMessage,
@@ -197,13 +197,13 @@ def _without_buyer(text: str, buyers: Sequence[Buyer | None]) -> str:
 _EMAIL_TEXT: Final = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 
 
-@runtime_checkable
 class OrderPlacer(Protocol):
     """Crea el pedido de venta de una cotización registrada (spec 056; Odoo)."""
 
     def place(self, request: OrderRequest) -> OrderResult: ...
 
 
+@runtime_checkable
 class ChatProvider(Protocol):
     """Contrato que consume la vista; el servicio real y los dobles lo cumplen."""
 
@@ -1638,7 +1638,7 @@ class ChatService:
         )
         try:
             result: OrderResult = orders.place(request)
-        except (OdooError, KeyError, ValueError) as error:
+        except Exception as error:  # cualquier fallo del CRM: se avisa y se puede reintentar
             logger.warning("pedido.fallido", folio=draft.folio, error_type=type(error).__name__)
             # Los datos siguen en el borrador: un «sí» lo reintenta con el mismo folio.
             return quote_render.order_failed(), draft.touch(awaiting="confirmar_pedido")
@@ -2071,7 +2071,8 @@ def _replay(
         if html:
             yield ChatEvent("products", {"html": html})
     if assistant.content:
-        yield ChatEvent("token", {"text": assistant.content})
+        # ``replay``: la vista enlaza el PDF y el recibo en este texto guardado (spec 056).
+        yield ChatEvent("token", {"text": assistant.content, "replay": True})
     if assistant.status == "incomplete":
         yield ChatEvent("error", {"message": SERVICE_UNAVAILABLE, "incomplete": True})
     else:
