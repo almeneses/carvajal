@@ -353,6 +353,7 @@ versionada está en [`deploy/odoo/`](../deploy/odoo/).
 - Base `carvajal` (`dbfilter = ^carvajal$`, sin gestor de bases), con los módulos
   `sale_management`, `crm`, `sale_crm` y `contacts`, en español de Colombia, con COP y sin
   impuestos por defecto (los precios llegan calculados por la app).
+- Los addons propios (`deploy/odoo/addons/`, hoy `carvajal_sale_report`, el PDF del pedido) se copian e instalan a mano: fusionar en `main` no los despliega. Pasos, `report.url` y comprobación en [`deploy/odoo/README.md`](../deploy/odoo/README.md#addons).
 - La API es JSON-2: `POST /json/2/<modelo>/<método>` con `Authorization: bearer <api key>`
   y `X-Odoo-Database: carvajal`.
 
