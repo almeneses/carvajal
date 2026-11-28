@@ -64,9 +64,14 @@
     if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
   });
 
-  for (const tipo of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+  for (const tipo of ["wheel", "touchstart", "pointerdown"]) {
     historial.addEventListener(tipo, () => { tocado = true; }, { passive: true });
   }
+  // Del teclado solo cuentan las teclas que desplazan; Tab o un atajo no mueven el historial.
+  const teclasDeDesplazamiento = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+  historial.addEventListener("keydown", (event) => {
+    if (teclasDeDesplazamiento.has(event.key)) tocado = true;
+  });
   historial.addEventListener("scroll", () => {
     if (seguir && !tocado) {
       ajustarHistorial();
