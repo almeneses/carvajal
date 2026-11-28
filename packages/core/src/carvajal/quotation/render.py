@@ -1145,16 +1145,22 @@ def pending_close(
     return Message(text, spoken)
 
 
-def no_lines_yet(number: int, items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Message:
-    """«Cambia la 2» sin productos en el carrito y con productos esperando un dato."""
+def no_lines_yet(
+    number: int | None, items: Sequence[Mapping[str, Any]], *, held: int = 0
+) -> Message:
+    """Un cambio sin productos en el carrito y con productos esperando un dato.
 
+    ``number`` es la línea nombrada («cambia la 2»); ``None`` si no se nombró una que se pueda
+    decir (o se pidió cambiar algo del carrito vacío).
+    """
+
+    what = f"un producto {number}" if number else "productos que cambiar"
     text = (
-        f"Tu cotización todavía no tiene un producto {number}: me falta saber "
+        f"Tu cotización todavía no tiene {what}: me falta saber "
         f"{_pending_list(items)} para agregarlos.{_held_text(held)}"
     )
     spoken = (
-        f"Tu cotización todavía no tiene un producto {number}. Me falta saber "
-        f"{_pending_list(items, bold=False)}."
+        f"Tu cotización todavía no tiene {what}. Me falta saber {_pending_list(items, bold=False)}."
     )
     return Message(text, spoken)
 

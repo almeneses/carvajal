@@ -694,7 +694,12 @@ def _rules(
         # dato más», prueba de cotización del 2026-11-27). El carrito numerado y la pregunta.
         edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
         return Reply(render.edit_cart(edited, missing=missing_line), edited)
-    if missing_line and not draft.lines and draft.pending and draft.awaiting in _EDITABLE:
+    if (
+        (missing_line or wants_edit(text))
+        and not draft.lines
+        and draft.pending
+        and draft.awaiting in _EDITABLE
+    ):
         # Lo mismo con el carrito vacío y productos esperando un dato (segunda corrida de la
         # prueba): no hay línea que cambiar; se dice y se pregunta lo que falta.
         return Reply(render.no_lines_yet(missing_line, draft.pending, held=len(draft.held)), draft)
@@ -790,6 +795,10 @@ def _edit_request(draft: QuoteDraft, text: str, said: str, now: datetime) -> Rep
         removal = _removal(draft, text, now)
         if removal is not None:
             return removal
+    if not draft.lines and draft.pending:
+        # Sin productos en el carrito no hay qué cambiar: el modelo respondía «Ajusté la línea
+        # 1 a 600…» sin que nada cambiara (tercera corrida de la prueba, 2026-11-28).
+        return Reply(render.no_lines_yet(None, draft.pending, held=len(draft.held)), draft)
     if not draft.lines:
         return Pass(draft.touch(now, awaiting=None, off_flow=0), prompt=strip_assent(said))
     editing = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)

@@ -1058,3 +1058,50 @@ def test_la_cita_del_producto_nombrado_por_su_nombre_no_cambia() -> None:
     # Assert
     assert "sirve la Tapa viajera 9 a 12 oz [1]." in answer  # la [2] de la tapa, renumerada
     assert "[1] Tapa viajera 9 a 12 oz para vaso Bioform" in answer
+
+
+def test_las_citas_de_la_prueba_06_de_produccion_se_corrigen() -> None:
+    # Arrange: texto de la tercera corrida (2026-11-28) y fuentes por posición, sin ``n``,
+    # como las manda el servicio. «Vaso rígido traslúcido» es igual en el de 7 y el de 9 oz,
+    # y «81.616» no corta la frase.
+    skus = ["7704918100199", "CO-VRG-13", "CO-VRG-14", "CO-VRG-16", "CO-VRM-10", "CO-VRM-12"]
+    sources: list[dict[str, Any]] = []
+    for sku in [*skus, "CO-VTER-04"]:
+        sources.append(
+            {"title": f"Vaso {sku}", "url": f"https://c.co/{sku}", "chunk_id": f"catalogo:{sku}"}
+        )
+        sources.append(
+            {
+                "title": f"EDEXA: Vaso {sku}",
+                "url": f"https://e.co/{sku}",
+                "chunk_id": f"precio:{sku}:1",
+            }
+        )
+    sources[0]["title"] = "Vaso rígido traslúcido 9 oz Wau"
+    sources[1]["title"] = "EDEXA: Vaso rígido traslúcido 9 oz Wau"
+    sources.append(
+        {
+            "title": "Vaso térmico 6 oz Wau",
+            "url": "https://c.co/termico",
+            "chunk_id": "catalogo:CO-VTER-06",
+        }
+    )
+    assert len(sources) == 15
+    text = (
+        "No hay vaso de 7 oz para café caliente con precio publicado en Bogotá. El único de 7 oz "
+        "que aparece, el Vaso rígido traslúcido 7 oz Wau (SKU CO-VRP-07), la ficha lo declara "
+        "para bebida fría, no caliente [1].\n\n"
+        "Lo más cercano en capacidad para caliente es el Vaso térmico 6 oz Wau (SKU CO-VTER-06), "
+        "de EPS, con precio de referencia por caja de 81.616 COP en Barranquilla, sin "
+        "distribuidor [2]."
+    )
+    chat = FakeChat(events=_turn(text, sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("dos mil vasos para café caliente de 7 oz", "+57300")
+
+    # Assert
+    assert "para bebida fría, no caliente." in answer
+    assert "sin distribuidor [1]." in answer
+    assert "[1] Vaso térmico 6 oz Wau — https://c.co/termico" in answer
+    assert "9 oz" not in answer.split("*Fuentes:*", 1)[1]
