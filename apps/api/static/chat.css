@@ -1911,25 +1911,51 @@ html[data-voz-grabando="1"] .chat-cuerpo .composer [data-voz-dictar]::after {
   pointer-events: none;
 }
 
-/* Transcribiendo: el botón espera con un aro que gira. */
+/* Transcribiendo: un aro pequeño ocupa el lugar del micrófono dentro del botón (2026-11-27).
+   Antes era un ::after absoluto con inset -5px y radio 50 %: sobre la píldora de ~124×56 px
+   giraba una elipse más grande que el propio botón. */
 html[data-voz-transcribiendo="1"] .chat-cuerpo .composer [data-voz-dictar] {
   cursor: progress;
   animation: none;
 }
 
+html[data-voz-transcribiendo="1"] .chat-cuerpo .composer [data-voz-dictar] svg {
+  display: none;
+}
+
 html[data-voz-transcribiendo="1"] .chat-cuerpo .composer [data-voz-dictar]::after {
   content: "";
-  position: absolute;
-  inset: -5px;
-  border: 3px solid transparent;
-  border-top-color: var(--azul);
+  position: static;
+  inset: auto;
+  order: -1;
+  flex: none;
+  width: 18px;
+  mask: none;
+  background: none;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
-  animation: voz-gira 0.9s linear infinite;
+  animation: voz-gira 0.75s linear infinite;
   pointer-events: none;
 }
 
+/* Aro de espera común (transcribir, sintetizar, cargar la nota de voz): pista tenue y un arco
+   del color del texto. */
 @keyframes voz-gira {
   to { transform: rotate(360deg); }
+}
+
+@keyframes voz-espera {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-voz-transcribiendo="1"] .chat-cuerpo .composer [data-voz-dictar]::after,
+  .turno-voz-boton[aria-busy="true"]::before,
+  .turno-nota[data-nota-estado="cargando"] .turno-nota-boton::before {
+    animation: voz-espera 1.6s ease-in-out infinite;
+  }
 }
 
 .voz-boton[aria-pressed="true"] {
@@ -2062,11 +2088,11 @@ html[data-voz-tts="1"] .turno-assistant .turno-voz:not([hidden]) {
 
 .turno-voz-boton[aria-busy="true"]::before {
   mask: none;
-  border: 2.5px solid currentColor;
-  border-right-color: transparent;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   background: none;
-  animation: voz-gira 0.8s linear infinite;
+  animation: voz-gira 0.75s linear infinite;
 }
 
 /* Aviso previo al primer dictado: explica el posible procesamiento del
@@ -3098,14 +3124,14 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
 }
 
 .turno-nota[data-nota-estado="cargando"] .turno-nota-boton::before {
-  width: 20px;
-  height: 20px;
-  border: 2.5px solid currentColor;
-  border-right-color: transparent;
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
   border-radius: 50%;
   background: none;
   mask: none;
-  animation: voz-gira 0.8s linear infinite;
+  animation: voz-gira 0.75s linear infinite;
 }
 
 /* Bloqueada (el navegador no dejó sonar sola): el botón invita a tocarlo. */
