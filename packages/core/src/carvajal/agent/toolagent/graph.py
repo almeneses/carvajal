@@ -979,7 +979,11 @@ def build_tool_agent(
         progress.results.append(result.outcome)
         progress.sources = result.sources
         progress.quotes = result.quotes
-        progress.cards.update(result.cards)
+        for key, value in result.cards.items():
+            if key == "pending_quotes":  # una por producto del turno: se acumulan
+                progress.cards[key] = [*progress.cards.get(key, []), *value]
+            else:
+                progress.cards[key] = value
         if progress.quotes:
             progress.cards["quotes"] = progress.quotes
         for key, value in result.context_update.items():

@@ -11,7 +11,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Final, Literal, cast
 
 import structlog
 from pydantic import BaseModel, Field, StringConstraints, ValidationError, field_validator
@@ -1501,6 +1501,34 @@ def _without_unsaid(draft: _Draft, unsaid: str | None) -> _Draft:
     return draft
 
 
+# Datos cuya falta deja un producto pendiente en la cotización (spec 054): con ellos se cotiza.
+_PENDING_MISSING: Final = frozenset({"temperatura", "cantidad", "ciudad"})
+
+
+def _pending_card(quoted: Mapping[str, Any], missing: Sequence[str]) -> dict[str, Any]:
+    """Tarjeta ``pending_quotes`` con el producto al que le falta un dato, si aplica.
+
+    El flujo de cotización la guarda en el borrador: en una solicitud con varios productos,
+    el que espera su dato no se pierde mientras se cotiza otro (prueba del 2026-11-27, «500
+    vasos de 9 oz y 300 tapas para esos vasos» sin la temperatura del vaso).
+    """
+
+    asked = quoted.get("request")
+    if not isinstance(asked, Mapping) or not asked.get("family"):
+        return {}
+    wanted = [item for item in missing if item in _PENDING_MISSING]
+    if not wanted:
+        return {}
+    item = {
+        "family": str(asked["family"]),
+        "missing": wanted,
+        "quantity": asked.get("quantity"),
+        "capacity_oz": asked.get("capacity_oz"),
+        "city": asked.get("city"),
+    }
+    return {"pending_quotes": [item]}
+
+
 def _other_family(said: frozenset[str], context: Mapping[str, Any]) -> _Draft:
     """La persona nombra otra familia y la llamada no dice cuál cotizar.
 
@@ -1694,6 +1722,7 @@ def _quote(
             data=data,
             missing=missing,
             context_update=update,
+            cards=_pending_card(quoted, missing),
         )
     if kind == "sin_resultados":
         draft = _quote_without_price(quoted, dataset, base, update, sources)

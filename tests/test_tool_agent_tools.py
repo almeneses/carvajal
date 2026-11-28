@@ -3214,3 +3214,27 @@ def test_una_medida_pegada_a_su_unidad_si_nombra_la_referencia(
     assert "referencia_no_dicha" not in result.payload
     assert _primary_skus(result) == ["CO-VRP-07"]
     assert result.quotes[0]["reference_origin"] == "persona"
+
+
+def test_cotizar_sin_temperatura_deja_el_producto_pendiente_en_una_tarjeta() -> None:
+    # Arrange: «500 vasos de 9 oz … en Bogotá» sin decir si son para frío o calor.
+    context = ToolContext(question="500 vasos de 9 oz y 300 tapas para esos vasos en Bogotá")
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "vaso", "quantity": 500, "capacity_oz": 9, "city": "Bogotá"},
+        context=context,
+    )
+
+    # Assert
+    assert result.status == "needs_input"
+    assert result.cards["pending_quotes"] == [
+        {
+            "family": "vaso",
+            "missing": ["temperatura"],
+            "quantity": 500,
+            "capacity_oz": 9,
+            "city": "Bogotá",
+        }
+    ]

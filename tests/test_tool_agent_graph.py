@@ -1935,3 +1935,28 @@ def test_una_herramienta_nueva_no_corre_tras_cancelar_el_turno(
         graph.invoke(_input(), cancel.config(_config()))
     assert calls == []
     assert chat.remaining_steps == 1
+
+
+def test_los_productos_pendientes_de_varias_llamadas_se_acumulan() -> None:
+    # Arrange: «500 vasos de 9 oz y 200 contenedores en Bogotá», a los dos les falta la
+    # temperatura; cada ``cotizar`` deja su tarjeta ``pending_quotes`` (prueba 2026-11-27).
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("cotizar", "c1", family="vaso", quantity=500, capacity_oz=9, city="Bogotá"),
+                _call("cotizar", "c2", family="contenedor", quantity=200, city="Bogotá"),
+            ]
+        ),
+        ScriptStep(text="¿Los vasos y los contenedores son para algo caliente o frío?"),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    state = graph.invoke(
+        _input("500 vasos de 9 oz y 200 contenedores en Bogotá"), _config("hilo-pendientes")
+    )
+
+    # Assert
+    pending = state["cards"]["pending_quotes"]
+    assert [item["family"] for item in pending] == ["vaso", "contenedor"]
+    assert all(item["missing"] == ["temperatura"] for item in pending)
