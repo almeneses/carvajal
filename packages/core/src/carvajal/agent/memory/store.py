@@ -8,7 +8,9 @@ pruebas), namespace ``("carvajal", "memory", owner_key)``, con un elemento por c
 - ``notas``: ``{"v": 2, "items": [{"value", "origin", "updated_at"}], "updated_at"}``, hasta
   cinco notas de 120 caracteres.
 
-Reglas: nunca se guarda un dato sensible (:mod:`carvajal.agent.memory.sensitive`); un dueño
+Reglas: nunca se guarda un dato sensible (:mod:`carvajal.agent.memory.sensitive`) ni una
+orden al asistente (:mod:`carvajal.agent.memory.instructions`), y una que se guardó antes
+no se lee; un dueño
 vacío o con forma inválida no lee ni escribe (``sin_dueno``); un Store caído no rompe el
 turno (perfil vacío o ``store_no_disponible``); lo que no se actualiza en
 ``AGENT_MEMORY_DAYS`` (180) días se ignora y se borra al leerlo. El formato anterior
@@ -28,6 +30,7 @@ from typing import Any, Final, Literal
 
 import structlog
 
+from carvajal.agent.memory.instructions import find_instruction
 from carvajal.agent.memory.sensitive import find_sensitive
 from carvajal.agent.memory.summary import TOMBSTONE_KEY, parse_time, summary_namespace
 
@@ -96,6 +99,7 @@ Origin = Literal["tool", "shortcut", "migration"]
 Outcome = Literal["saved", "replaced", "rejected", "listed", "forgotten", "nothing"]
 Reason = Literal[
     "dato_sensible",
+    "instruccion",
     "vacio",
     "limite_notas",
     "demasiado_largo",
@@ -288,15 +292,31 @@ def _read(store: Any, owner_key: str, days: int, now: datetime) -> MemoryProfile
                 store.delete(namespace, key)
             elif len(live) != len(value.get("items") or []):
                 store.put(namespace, key, {**value, "items": live})
-            notes = [str(entry["value"]) for entry in live][-MAX_NOTES:]
+            notes = [
+                str(entry["value"]) for entry in live if not _instruction(entry["value"], key)
+            ][-MAX_NOTES:]
             continue
         if key not in CATEGORIES or not isinstance(value.get("value"), str):
             continue
         if _expired(value.get("updated_at"), now, days):
             store.delete(namespace, key)
             continue
-        values[key] = value["value"]
+        if not _instruction(value["value"], key):
+            values[key] = value["value"]
     return MemoryProfile(values=values, notes=tuple(notes))
+
+
+def _instruction(text: str, category: str) -> bool:
+    """Valor guardado antes del filtro que trae una orden: no se lee (ni llega al prompt).
+
+    No se borra: «olvidar» y la caducidad siguen funcionando sobre él como sobre cualquier
+    otro, y el monitoreo cuenta los casos sin registrar el valor.
+    """
+
+    if not find_instruction(text):
+        return False
+    logger.info("agent.memory_instruction_skipped", category=category)
+    return True
 
 
 def _cut_note(text: str) -> str:
@@ -317,7 +337,7 @@ def _migrate(store: Any, owner_key: str, now: datetime) -> MemoryProfile:
     candidates: list[str] = []
     dropped = 0
     for phrase in (str(item) for item in phrases):
-        if find_sensitive(phrase):
+        if find_sensitive(phrase) or find_instruction(phrase):
             dropped += 1
             continue
         found = classify(phrase)
@@ -428,6 +448,10 @@ def remember(
     kinds = find_sensitive(text)
     if kinds:
         return rejected("dato_sensible", kinds)
+    kinds = find_instruction(text)
+    if kinds:
+        # Una orden guardada se releería en cada turno futuro (prompt injection persistente).
+        return rejected("instruccion", kinds)
     if category == "nota":
         if len(text) > NOTE_CHARS:
             return rejected("demasiado_largo")
