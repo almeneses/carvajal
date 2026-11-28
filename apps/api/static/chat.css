@@ -42,6 +42,28 @@ body:has(> .ancho-chat) {
   --ancho-hilo: 48rem;
 }
 
+/* Revisión de la interfaz del 2026-11-27 (owner): en escritorio el chat ocupa el 80 % de la
+   pantalla. --ancho-hilo también mide la cabecera de Carva, el compositor, la escena de voz,
+   los temas del inicio y la cotización, así que crecen juntos (el FLIP del inicio solo anima
+   en vertical). El canal del scrollbar en ambos lados deja el hilo y el compositor alineados
+   al píxel. Entre 561 y 1023 px se queda el ancho de 48rem con sus rellenos de siempre. */
+@media (min-width: 1024px) {
+  .ancho-chat {
+    max-width: none;
+  }
+
+  .conversacion {
+    --ancho-hilo: clamp(48rem, 80vw, var(--ancho-chat-max));
+  }
+
+}
+
+@media (min-width: 561px) {
+  .chat-cuerpo .historial-chat {
+    scrollbar-gutter: stable both-edges;
+  }
+}
+
 /* El chat ya no vive en una tarjeta: flota sobre el fondo mate, como en Stitch. */
 .panel.conversacion {
   background: transparent;
@@ -147,20 +169,29 @@ body:has(> .ancho-chat) {
   margin-inline: auto;
 }
 
+/* El estado vacío (role=status, sigue en el árbol de accesibilidad) no suma su hueco del flex
+   entre el historial y el compositor. */
+.estado-chat:empty {
+  margin-top: calc(-1 * var(--hueco-chat));
+}
+
 /* «Ir al final» (ensayo del 2026-11-26): antes flotaba centrado 54 px dentro del historial y
    tapaba el texto y los botones del último turno. Ahora va a la derecha, a caballo entre el
    historial y el compositor, con fondo opaco: tapa como mucho 12 px del historial. Los
-   márgenes negativos suman su alto más el hueco del flex, así aparecer no mueve el compositor. */
+   márgenes negativos suman su alto más el hueco del flex, así aparecer no mueve el compositor.
+   2026-11-27: se alinea con el borde derecho de la columna del hilo (no del panel) y va por
+   encima del compositor, que antes le tapaba la mitad inferior. */
 .chat-cuerpo .chat-final {
   align-self: flex-end;
-  z-index: 3;
+  z-index: 4;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   width: auto;
   height: 36px;
   min-height: 36px;
-  margin: -22px clamp(8px, 3vw, 24px) calc(-14px - var(--hueco-chat)) 0;
+  margin: -28px calc((100% - min(100%, var(--ancho-hilo))) / 2 + 12px)
+    calc(-8px - var(--hueco-chat)) 0;
   padding: 0 14px;
   border: 1px solid var(--borde);
   border-radius: 100px;
@@ -720,6 +751,13 @@ body:has(> .ancho-chat) {
   color: var(--secundario);
 }
 
+/* El resumen dice «30 descartadas» y la lista trae solo los primeros motivos. */
+.productos-descartes-mas {
+  margin-left: -1.2rem;
+  font-style: italic;
+  list-style: none;
+}
+
 .productos-canal,
 .productos .productos-nota {
   margin: 0;
@@ -777,7 +815,7 @@ body:has(> .ancho-chat) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
+  min-height: 44px;
   margin-block: 4px;
   padding: 0 14px;
   border-radius: 999px;
@@ -1267,7 +1305,7 @@ body:has(> .ancho-chat) {
 }
 
 .chat-cuerpo .composer:focus-within {
-  border-color: var(--cian);
+  border-color: var(--foco);
 }
 
 .composer .campo {
@@ -1293,7 +1331,7 @@ body:has(> .ancho-chat) {
   padding: 14px 16px;
   resize: none;
   field-sizing: content;
-  border: 2px solid var(--borde);
+  border: 2px solid var(--borde-control);
   border-radius: 16px;
   background: var(--fondo-pagina);
   color: var(--tinta);
@@ -1446,6 +1484,104 @@ body:has(> .ancho-chat) {
   font-size: 0.85rem;
 }
 
+/* Revisión del 2026-11-27: desde 561 px el compositor es una sola fila, como en Stitch
+   (campo, Foto, Dictar, opciones de voz como icono y Enviar). Antes las opciones de voz y la
+   nota de contexto sumaban dos filas: 188 px de compositor a 1440×900 y 471 px de historial.
+   Entre 561 y 760 px, Foto y Dictar quedan como iconos; su texto sigue siendo su nombre
+   accesible. La nota de contexto solo aparece cuando el último turno de Carva trae tarjetas
+   (la media query evita que esta regla, más específica, anule las que la ocultan). */
+.composer [data-chat-contexto] {
+  display: none;
+}
+
+@media (min-width: 561px) {
+  .chat-cuerpo .composer {
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  }
+
+  .composer button[type="submit"],
+  .composer [data-chat-detener] {
+    grid-column: 5;
+  }
+
+  .composer .voz-opciones {
+    grid-column: 4;
+    grid-row: 1;
+    justify-self: auto;
+    margin-top: 0;
+  }
+
+  .composer .voz-opciones summary {
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  .composer .voz-opciones-texto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .composer .productos-nota {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+}
+
+@media (min-width: 561px) and (min-height: 701px) {
+  .chat-cuerpo:has(.hilo > .turno-assistant:last-child > .productos)
+    .composer [data-chat-contexto] {
+    display: block;
+  }
+}
+
+@media (min-width: 561px) and (max-width: 900px) {
+  .composer .foto-boton {
+    min-width: 52px;
+    padding: 0;
+  }
+
+  .composer .foto-boton-texto,
+  .composer [data-voz-dictar-texto] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 561px) and (max-width: 640px) {
+  .composer button[type="submit"] {
+    min-width: 56px;
+    padding: 0;
+  }
+
+  .composer .enviar-texto {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* «Ir al final» va por encima del compositor; con el menú de voz abierto, el menú gana. */
+.chat-cuerpo .composer:has(.voz-opciones[open]) {
+  z-index: 5;
+}
+
 .voz-opciones {
   position: relative;
   font-size: 0.9rem;
@@ -1455,7 +1591,7 @@ body:has(> .ancho-chat) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 12px;
   border-radius: 999px;
   color: var(--azul);
@@ -1484,7 +1620,7 @@ body:has(> .ancho-chat) {
 
 .voz-opciones-cuerpo {
   position: absolute;
-  inset: auto auto calc(100% + 8px) 0;
+  inset: auto 0 calc(100% + 8px) auto;
   z-index: 4;
   display: grid;
   gap: 8px;
@@ -1495,7 +1631,7 @@ body:has(> .ancho-chat) {
   border-radius: 18px;
   background: var(--panel);
   box-shadow: var(--sombra-alta);
-  transform-origin: bottom left;
+  transform-origin: bottom right;
   animation: menu-abre 220ms var(--curva) both;
 }
 
@@ -2292,11 +2428,47 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   max-width: var(--ancho-hilo);
 }
 
+/* Cabecera en rejilla (2026-11-27): título y sellos a la izquierda; PDF y «Ocultar detalle» a
+   la derecha en la misma franja. Con flex, «Ocultar detalle» bajaba solo a una segunda fila.
+   En una tarjeta angosta (se mide la tarjeta, no la pantalla) vuelve al flex con salto: título
+   y sellos a lo ancho y los botones enteros debajo; una rejilla de pistas «auto» desbordaba
+   el hilo a 360 px. */
+.coti {
+  container: coti / inline-size;
+}
+
 .coti-cabecera {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+}
+
+.coti-titulo,
+.coti-sello {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.coti-pdf {
+  grid-row: 1 / span 3;
+  grid-column: 2;
+}
+
+.coti-alternar {
+  grid-row: 1 / span 3;
+  grid-column: 3;
+}
+
+@container coti (max-width: 38rem) {
+  .coti-cabecera {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .coti-titulo {
+    flex-basis: 100%;
+  }
 }
 
 .coti-titulo {
@@ -2329,35 +2501,49 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   font-size: 0.88rem;
 }
 
+/* Cifras como lista rótulo/valor, como la propuesta de Stitch («Flujo Foto a Cotización»):
+   la cuadrícula de cajitas desalineaba los valores y partía «1 caja (2500 unidades)». */
 .coti-cifras {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
   margin: 12px 0;
+  padding: 4px 16px;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  background: var(--fondo-pagina);
 }
 
 .coti-cifras div {
-  padding: 8px 10px;
-  border: 1px solid var(--borde);
-  border-radius: 12px;
-  background: var(--fondo);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--superficie-alta);
 }
 
 .coti-cifras dt {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--secundario);
+  font-size: 0.95rem;
 }
 
 .coti-cifras dd {
-  margin: 2px 0 0;
-  font-weight: 700;
+  margin: 0 0 0 auto;
   color: var(--tinta);
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-.coti-cifra-fuerte {
-  border-color: var(--azul) !important;
+.coti-cifras .coti-cifra-fuerte {
+  padding-top: 12px;
+  border-bottom: 0;
+}
+
+.coti-cifra-fuerte dd {
+  color: var(--azul);
+  font-size: 1.15rem;
 }
 
 .coti-etiquetas,
@@ -2382,13 +2568,16 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
 .coti-pdf {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--azul);
-  border-radius: 999px;
+  border-radius: 14px;
   color: var(--azul);
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.92rem;
+  font-weight: 700;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .coti-pdf:hover,
@@ -2513,10 +2702,6 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
   font-size: 1.12rem;
 }
 
-.coti-cifras div {
-  border-radius: 14px;
-  background: var(--fondo-pagina);
-}
 
 .coti-plegable {
   display: grid;
@@ -2589,10 +2774,11 @@ html[data-voz-transcribiendo="1"] .voz-escena-ondas i {
 
 .coti-alternar {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  margin-left: auto;
+  white-space: nowrap;
   padding: 0 14px;
   border: 2px solid var(--borde);
   border-radius: 14px;
@@ -3294,9 +3480,166 @@ form[data-foto-arrastrando] {
   display: none;
 }
 
-@media (max-width: 640px) {
+/* Revisión del 2026-11-27 (owner): abrir «Detalles de la ficha» en una alternativa estiraba
+   a su vecina de fila (la rejilla estiraba los elementos al alto de la fila). Cada tarjeta
+   mide ahora lo que su contenido. La cuadrícula pasa a una columna según el ancho de las
+   tarjetas, no de la pantalla: las tarjetas dependen del ancho del hilo. */
+.productos-lista.productos-foto {
+  align-items: start;
+}
+
+.turno-assistant > .productos {
+  container: productos / inline-size;
+}
+
+@container productos (max-width: 36rem) {
   .productos-lista.productos-foto {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tarjetas un 30 % más compactas (owner, 2026-11-27), con la foto al lado del cuerpo como en
+   Stitch «Asistente de Empaques». Los botones y el «Detalles de la ficha» conservan 44 px de
+   objetivo táctil: se compacta con rellenos, tipografía y la disposición foto|cuerpo. */
+.productos-lista {
+  gap: 10px;
+}
+
+.producto {
+  --visual-ancho: 140px;
+  gap: 10px 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+}
+
+.productos-lista > .producto:not(:first-child):not(.producto-destacado),
+.productos-lista.productos-foto > .producto.producto-alternativa {
+  --visual-ancho: 88px;
+  gap: 8px 12px;
+  padding: 12px 14px;
+}
+
+.producto-visual {
+  border-radius: 14px;
+}
+
+.producto-visual-medida {
+  bottom: 5px;
+  font-size: 0.72rem;
+}
+
+.producto-cuerpo {
+  gap: 6px;
+}
+
+.producto-nombre {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.etiqueta-material,
+.etiqueta-dato {
+  padding: 2px 10px;
+  font-size: 0.78rem;
+}
+
+.producto-cifras {
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.producto-datos {
+  font-size: 0.875rem;
+}
+
+.producto-precio strong {
+  font-size: 1.2rem;
+}
+
+.producto-precio-detalle {
+  font-size: 0.82rem;
+}
+
+.producto-aviso,
+.producto-fuente,
+.producto-oferta-fuente {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* app.css pone los .boton a todo el ancho; en la tarjeta van uno junto al otro. */
+.producto-acciones > .boton {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 8rem;
+  white-space: nowrap;
+}
+
+.producto-acciones .boton {
+  min-height: 44px;
+  padding: 0 1.1rem;
+  font-size: 0.9rem;
+}
+
+.producto-detalles summary {
+  font-size: 0.82rem;
+}
+
+@media (min-width: 641px) {
+  .producto {
+    grid-template-columns: var(--visual-ancho) minmax(0, 1fr);
+  }
+
+  .producto > .producto-visual {
+    grid-column: 1;
+    align-self: start;
+  }
+
+  .producto > .producto-cuerpo {
+    grid-column: 2;
+  }
+}
+
+/* Alternativas de la foto: foto y nombre en la cabecera; precio, botones y detalles debajo, a
+   todo el ancho de la tarjeta (en media columna no caben al lado de la foto). */
+.productos-foto > .producto-alternativa {
+  grid-template-columns: var(--visual-ancho) minmax(0, 1fr);
+}
+
+.productos-foto > .producto-alternativa .producto-cuerpo {
+  display: contents;
+}
+
+.productos-foto > .producto-alternativa > .producto-visual {
+  grid-column: 1;
+  grid-row: 2 / span 2;
+}
+
+.productos-foto > .producto-alternativa .producto-nombre {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: start;
+}
+
+.productos-foto > .producto-alternativa .producto-etiquetas {
+  grid-column: 2;
+  grid-row: 3;
+  align-self: start;
+}
+
+.productos-foto > .producto-alternativa :is(.producto-cifras, .producto-acciones, .producto-detalles) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 560px) {
+  .producto {
+    --visual-ancho: 120px;
+  }
+
+  .productos-lista > .producto:not(:first-child):not(.producto-destacado),
+  .productos-lista.productos-foto > .producto.producto-alternativa {
+    --visual-ancho: 80px;
   }
 }
 
@@ -3496,16 +3839,16 @@ form[data-foto-arrastrando] {
 
 /* El campo crece con su contenido (field-sizing), y vacío también con el texto de ayuda: en
    los teléfonos angostos «Escribe o dicta tu pregunta» partía en 3 líneas y el campo vacío
-   medía 104 px. Vacío ocupa una línea y la ayuda se corta con puntos suspensivos. */
-@media (max-width: 560px) {
-  .composer textarea:placeholder-shown {
-    max-height: 3.2em;
-    overflow: hidden;
-  }
+   medía 104 px. Vacío ocupa una línea y la ayuda se corta con puntos suspensivos. Desde el
+   2026-11-27 vale en todos los anchos: con el compositor de una fila (≥561 px) el campo vacío
+   también partía la ayuda en 2 o 3 líneas. */
+.composer textarea:placeholder-shown {
+  max-height: 3.2em;
+  overflow: hidden;
+}
 
-  .composer textarea::placeholder {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.composer textarea::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
