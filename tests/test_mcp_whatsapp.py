@@ -959,3 +959,59 @@ def test_una_cita_que_no_empieza_en_1_se_renumera() -> None:
     assert "En Pasto hay una sede del directorio [1]." in answer
     assert f"[1] Sede Representaciones Lastra Pasto (Pasto) — {DIRECTORIO}" in answer
     assert "[2]" not in answer and "EDEXA" not in answer
+
+
+def test_la_cita_de_otro_producto_pasa_a_la_ficha_del_sku_nombrado() -> None:
+    # Arrange: prueba 06 (2026-11-27): el modelo citó [1] y [2] (fuentes del vaso de 9 oz)
+    # en frases sobre el vaso de 7 oz (sin fuente) y el térmico de 6 oz (fuente [15]).
+    sources = [
+        {
+            "title": "Vaso rígido traslúcido 9 oz Wau",
+            "url": "https://c.co/9",
+            "n": 1,
+            "chunk_id": "catalogo:7704918100199",
+        },
+        {
+            "title": "EDEXA: Vaso rígido traslúcido 9 oz Wau",
+            "url": "https://e.co/9",
+            "n": 2,
+            "chunk_id": "precio:7704918100199:1",
+        },
+        {
+            "title": "Vaso térmico 6 oz Wau",
+            "url": "https://c.co/termico",
+            "n": 15,
+            "chunk_id": "catalogo:CO-VTER-06",
+        },
+    ]
+    text = (
+        "El único de 7 oz es el Vaso rígido 7 oz Wau (SKU CO-VRP-07), para bebida fría [1].\n\n"
+        "Lo más cercano es el Vaso térmico 6 oz Wau (SKU CO-VTER-06), de EPS [2]."
+    )
+    chat = FakeChat(events=_turn(text, sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("dos mil vasos para café caliente de 7 oz", "+57300")
+
+    # Assert
+    assert "(SKU CO-VRP-07), para bebida fría." in answer
+    assert "(SKU CO-VTER-06), de EPS [1]." in answer
+    assert "[1] Vaso térmico 6 oz Wau — https://c.co/termico" in answer
+    assert "9 oz" not in answer.split("*Fuentes:*", 1)[1]
+
+
+def test_una_frase_sin_sku_conserva_su_cita() -> None:
+    # Arrange
+    sources = [
+        {"title": "Vaso 9 oz", "url": "https://c.co/9", "n": 1, "chunk_id": "catalogo:V9"},
+        {"title": "Vaso 6 oz", "url": "https://c.co/6", "n": 2, "chunk_id": "catalogo:V6"},
+    ]
+    chat = FakeChat(
+        events=_turn("El vaso de 9 oz es de PP [1]. Y el de 6 oz, EPS [2].", sources=sources)
+    )
+
+    # Act
+    answer = _bridge(chat).consult("vasos", "+57300")
+
+    # Assert
+    assert "El vaso de 9 oz es de PP [1]. Y el de 6 oz, EPS [2]." in answer

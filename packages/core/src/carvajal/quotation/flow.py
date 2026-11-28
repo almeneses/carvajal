@@ -694,6 +694,10 @@ def _rules(
         # dato más», prueba de cotización del 2026-11-27). El carrito numerado y la pregunta.
         edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
         return Reply(render.edit_cart(edited, missing=missing_line), edited)
+    if missing_line and not draft.lines and draft.pending and draft.awaiting in _EDITABLE:
+        # Lo mismo con el carrito vacío y productos esperando un dato (segunda corrida de la
+        # prueba): no hay línea que cambiar; se dice y se pregunta lo que falta.
+        return Reply(render.no_lines_yet(missing_line, draft.pending, held=len(draft.held)), draft)
     if draft.lines and draft.awaiting in _EDITABLE:
         changed = _quantity_change(draft, text, requote_fn, now)
         if changed is not None:
@@ -844,6 +848,11 @@ def _on_more(
 ) -> Reply | Pass | None:
     if wants_edit(text):  # antes que cerrar o agregar: «eso es todo, pero quita la 2»
         return _edit_request(draft, text, said, now)
+    if draft.pending and draft.pending_asked and _bare_yes(text):
+        # «Sí» a «Antes de cerrar: me falta…» no dice el dato ni cierra: se vuelve a pedir lo
+        # que falta (segunda corrida de la prueba: respondía «¿Qué producto agregamos?»).
+        message = render.pending_close(draft.pending, held=len(draft.held), again=True)
+        return Reply(message, draft.touch(now, off_flow=0))
     more = resolve_more(text)
     if more == "close" or (more == "close_confirm" and draft.pending):
         return _close(draft, now)
@@ -855,6 +864,17 @@ def _on_more(
         # «Sí» a «¿Algo más?» es agregar; «confírmala» ya lo resolvió ``resolve_more``.
         return Reply(render.ask_product(), draft.touch(now, awaiting=None, state="carrito"))
     return None
+
+
+_BARE_YES: Final = frozenset(
+    {"si", "sip", "claro", "dale", "ok", "listo", "bueno", "va", "si claro"}
+)
+
+
+def _bare_yes(text: str) -> bool:
+    """Un «sí» sin nada más (ni dato ni producto)."""
+
+    return plain(text).strip(" .!¡") in _BARE_YES
 
 
 def _add_request(draft: QuoteDraft, said: str, now: datetime) -> Reply | Pass:
@@ -1509,7 +1529,7 @@ _URL: Final = re.compile(r"https?://\S+")
 def _unfit_lids(
     draft: QuoteDraft, calculated: Sequence[Mapping[str, Any]]
 ) -> list[Mapping[str, Any]]:
-    """Tapas del turno que no le sirven a los vasos del turno o, sin ellos, a los del carrito.
+    """Tapas del turno que no le sirven a los vasos del turno, del carrito o de las opciones.
 
     Con vasos en el mismo turno («500 vasos de 9 oz y 300 tapas para esos vasos») la tapa se
     mide contra ellos; si el turno solo trae tapas, contra los vasos del carrito. No cuentan las
@@ -1531,6 +1551,10 @@ def _unfit_lids(
 
     cups = [found for line in calculated if (found := cup(line)) is not None]
     cups = cups or [found for line in draft.lines if (found := cup(line)) is not None]
+    # Sin vasos en el carrito, los de las opciones que se muestran (la recomendada y sus
+    # alternativas): «agrega 100 tapas» ante «¿Cuál te cotizo?» de vasos (prueba del
+    # 2026-11-27, entraba la tapa viajera para vaso Bioform con un vaso Wau).
+    cups = cups or [found for option in draft.options for found in _option_cups(option)]
     if not cups:
         return []
     return [
@@ -1544,6 +1568,25 @@ def _unfit_lids(
             capacity=not (item.get("request") or {}).get("capacity_oz"),
         )
     ]
+
+
+def _option_cups(option: Mapping[str, Any]) -> list[tuple[str, float | None]]:
+    """``(nombre, capacidad)`` de los vasos de unas opciones: la recomendada y alternativas."""
+
+    if line_family(option) != "vaso":
+        return []
+    found = []
+    for item in (_mapping(option.get("primary")), *(option.get("alternatives") or [])):
+        if not isinstance(item, Mapping):
+            continue
+        capacity = item.get("capacity_oz")
+        found.append(
+            (
+                str(item.get("name") or ""),
+                float(capacity) if isinstance(capacity, (int, float)) else None,
+            )
+        )
+    return found
 
 
 def asks_question(answer: str) -> bool:

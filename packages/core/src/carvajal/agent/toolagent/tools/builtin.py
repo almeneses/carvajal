@@ -78,6 +78,7 @@ from carvajal.commercial.book import CommercialBook, plain
 from carvajal.commercial.models import price_origin, seller_source_type
 from carvajal.quotation import Dataset, QuoteRequest, load_dataset, quote_request
 from carvajal.quotation.data import REFERENCE_SITE_ID
+from carvajal.quotation.lids import lid_fits_cup
 
 # Movido en bloque desde ``toolagent/tools.py`` (spec 045, T008; research R9): el código
 # no se reescribió. Ver el docstring de ``toolagent/tools/__init__.py``.
@@ -1748,8 +1749,11 @@ def _quote(
     quoted_family = (quoted.get("primary") or {}).get("family") or filled.family
     if quoted_family == "vaso":
         update[CUP_CAPACITY_KEY] = (quoted.get("primary") or {}).get("capacity_oz")
+        update[CUP_NAME_KEY] = (quoted.get("primary") or {}).get("name")
     elif quoted_family != "tapa":
-        update[CUP_CAPACITY_KEY] = None  # otro producto: la próxima tapa no es de ese vaso
+        # Otro producto: la próxima tapa no es de ese vaso.
+        update[CUP_CAPACITY_KEY] = None
+        update[CUP_NAME_KEY] = None
 
     # El flujo (``quotation.flow.after_turn``) solo agrega como línea nueva lo que la persona
     # eligió o nombró cuando el turno pregunta algo: necesita saber de dónde salió.
@@ -1793,6 +1797,8 @@ def _quote(
                 + "): la principal es la de menor precio por unidad, no la del total más "
                 "bajo. Pregunta qué referencia busca la persona."
             )
+    if lid_for_cup:
+        message += _other_cup_line(quoted, commercial_context.get(CUP_NAME_KEY), cup_capacity)
     shipping = quoted["commercial"]["shipping"]
     if quoted["total"] is None and shipping.get("requested") is None:
         # Spec 054 (decisión 4): el envío solo va en el resumen. Si el modelo pregunta aquí
@@ -1855,6 +1861,23 @@ _MAX_SITES_NAMED: Final = 3
 # Capacidad del último vaso cotizado: una tapa pedida después sin capacidad («agrega 100
 # tapas») se cotiza para ese vaso (prueba de cotización del 2026-11-27).
 CUP_CAPACITY_KEY: Final = "cup_capacity_oz"
+CUP_NAME_KEY: Final = "cup_name"
+
+
+def _other_cup_line(quoted: Mapping[str, Any], cup_name: Any, capacity: Any) -> str:
+    """Aviso si la tapa cotizada para el vaso es de otra línea de vasos («para vaso Bioform»)."""
+
+    lid = str((quoted.get("primary") or {}).get("name") or "")
+    if not isinstance(cup_name, str) or not cup_name:
+        return ""
+    size = float(capacity) if isinstance(capacity, (int, float)) else None
+    if lid_fits_cup(lid, [(cup_name, size)], capacity=False):
+        return ""
+    return (
+        f" La tapa cotizada ({lid}) es para otra línea de vasos y no le sirve al {cup_name}, "
+        "el vaso de la conversación: dilo así, no la ofrezcas como su tapa y no se agregará "
+        "a la cotización."
+    )
 
 
 def _remember_reference(

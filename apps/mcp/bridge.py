@@ -894,6 +894,75 @@ def drop_orphan_citations(text: str, sources: Iterable[Mapping[str, Any]]) -> st
     return re.sub(r"[ \t]+([.,;:)])", r"\1", cleaned)
 
 
+_SKU_SAID: Final = re.compile(r"\bSKU\s*:?\s*([A-Z0-9][A-Z0-9-]{3,})", re.I)
+_SENTENCE: Final = re.compile(r"[^.!?\n]*(?:[.!?]+|\n|$)")
+_PRODUCT_PREFIXES: Final = ("catalogo", "precio", "ficha")
+
+
+def _source_sku(source: Mapping[str, Any]) -> str:
+    """SKU de una fuente del catálogo (``catalogo:SKU``, ``precio:SKU:n``, ``ficha:SKU:CO``)."""
+
+    parts = str(source.get("chunk_id") or "").split(":")
+    if len(parts) >= 2 and parts[0] in _PRODUCT_PREFIXES:
+        return parts[1].upper()
+    return ""
+
+
+def align_citations(text: str, sources: Sequence[Mapping[str, Any]]) -> str:
+    """Corrige la cita de una frase que nombra un SKU y cita la fuente de otro producto.
+
+    En la prueba de cotización del 2026-11-27 («dos mil vasos para café caliente de 7 oz»)
+    el modelo citó [1] y [2], las fuentes del vaso de 9 oz, en frases sobre el vaso de 7 oz
+    (SKU CO-VRP-07, descartado y sin fuente) y el térmico de 6 oz (fuente [15]). Solo se tocan
+    las frases que dicen el SKU: la cita de otro producto pasa a la ficha del SKU nombrado si
+    el turno la trae; si no, se quita. Una frase sin SKU no cambia.
+    """
+
+    numbered = _numbered(sources)
+    sku_of = {number: _source_sku(source) for number, source in numbered}
+    known = {sku for sku in sku_of.values() if sku}
+    if not known:
+        return text
+    # Para cada SKU, su ficha (``catalogo:``) si el turno la trae; si no, su primera fuente.
+    first: dict[str, int] = {}
+    sheets: dict[str, int] = {}
+    for number, source in sorted(numbered, key=lambda pair: pair[0]):
+        sku = sku_of[number]
+        if not sku:
+            continue
+        first.setdefault(sku, number)
+        if str(source.get("chunk_id", "")).startswith("catalogo:"):
+            sheets.setdefault(sku, number)
+    first.update(sheets)
+
+    def fix(sentence: str) -> str:
+        said = {match.upper() for match in _SKU_SAID.findall(sentence)}
+        said |= {
+            sku
+            for sku in known
+            if re.search(rf"(?<![\w-]){re.escape(sku)}(?![\w-])", sentence, re.I)
+        }
+        if not said:
+            return sentence
+
+        def swap(match: re.Match[str]) -> str:
+            number = int(match.group(1))
+            sku = sku_of.get(number, "")
+            if not sku or sku in said:
+                return match.group(0)
+            target = next((first[item] for item in sorted(said) if item in first), None)
+            return f"[{target}]" if target is not None else ""
+
+        return _CITE.sub(swap, sentence)
+
+    fixed = "".join(fix(part) for part in _SENTENCE.findall(text))
+    if fixed == text:
+        return text
+    fixed = re.sub(r"(\[\d+\])(?:\1)+", r"\1", fixed)  # «[15][15]» tras corregir dos
+    fixed = re.sub(r"[ \t]{2,}", " ", fixed)
+    return re.sub(r"[ \t]+([.,;:)])", r"\1", fixed)
+
+
 def renumber_citations(
     text: str, sources: Sequence[Mapping[str, Any]]
 ) -> tuple[str, list[Mapping[str, Any]]]:
@@ -1503,7 +1572,7 @@ class WhatsAppBridge:
             [*blocks, *(f"{view.sku} {view.brand} {view.material}" for view, _ in quotes)]
         )
         prose = quote_remarks(turn.text, quoted) if quotes else turn.text
-        prose = drop_orphan_citations(prose, turn.sources)
+        prose = drop_orphan_citations(align_citations(prose, turn.sources), turn.sources)
         prose, sources = renumber_citations(prose, turn.sources)
         if prose.strip():
             blocks.append(to_whatsapp(prose))
@@ -1582,7 +1651,7 @@ class WhatsAppBridge:
         prose = turn.text.replace(template, "").strip()
         remarks = quote_remarks(prose, template) if prose else ""
         blocks: list[str] = []
-        remarks = drop_orphan_citations(remarks, turn.sources)
+        remarks = drop_orphan_citations(align_citations(remarks, turn.sources), turn.sources)
         remarks, sources = renumber_citations(remarks, turn.sources)
         if remarks.strip():
             blocks.append(to_whatsapp(remarks))
