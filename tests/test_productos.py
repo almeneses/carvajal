@@ -126,6 +126,51 @@ def test_la_tarjeta_lista_cada_oferta_con_su_fuente() -> None:
     assert "sin que la fuente indique si incluye impuestos" in html
 
 
+def test_la_oferta_del_catalogo_repetida_por_ciudad_se_muestra_una_vez() -> None:
+    # Arrange: el catálogo trae la oferta «sistema» una vez por ciudad con el mismo precio.
+    sistema = {
+        "source_type": "sistema",
+        "source_name": "Precio de referencia del catálogo",
+        "tax_status": "no_indicado",
+        "notice": "Precio de referencia del catálogo; no confirma existencias.",
+    }
+    ofertas = [
+        _oferta_tarjeta(**sistema, source_city=ciudad)
+        for ciudad in ("Barranquilla", "Bogotá", "Cali")
+    ]
+
+    # Act
+    html = render_products(_con_ofertas(*ofertas))
+
+    # Assert
+    assert html.count('class="producto-oferta"') == 1
+    assert html.count('data-campo="producto-precio"') == 1
+    assert html.count("no confirma existencias") == 1
+
+
+def test_las_ofertas_publicadas_de_la_ficha_no_repiten_la_misma_oferta() -> None:
+    # Arrange
+    oferta = {
+        "amount": "54000",
+        "currency": "COP",
+        "presentation": "caja",
+        "seller": "Precio de referencia del catálogo",
+        "seller_kind": "sistema",
+        "tax_status": "no_indicado",
+        "availability": "por_confirmar",
+        "captured_at": "2026-11-25",
+    }
+    otra = {**oferta, "amount": "60000", "seller": "Comercio Ejemplo", "seller_kind": "tercero"}
+
+    # Act
+    html = render_products({"offers": [oferta, dict(oferta), dict(oferta), otra]})
+
+    # Assert
+    assert "Ofertas publicadas" in html
+    assert html.count('class="producto-oferta"') == 2
+    assert "54000 COP" in html and "60000 COP" in html
+
+
 def test_la_tarjeta_de_colombia_no_muestra_estimaciones_ni_pesos_mexicanos() -> None:
     html = render_products(_con_ofertas(_oferta_tarjeta()))
 

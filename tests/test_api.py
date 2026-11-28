@@ -247,6 +247,32 @@ def test_el_logo_se_sirve_como_svg() -> None:
     assert "<svg" in response.text
 
 
+@pytest.mark.parametrize("asset", ["fondo-troquel.svg", "fondo-envases.svg", "fondo-corrugado.svg"])
+def test_los_svg_del_fondo_del_chat_se_sirven(asset: str) -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get(f"/static/{asset}")
+
+    # Assert: chat.css los referencia; un renombrado dejaría el fondo vacío en silencio.
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert f"/static/{asset}" in client.get("/static/chat.css").text
+
+
+def test_favicon_redirige_al_logo() -> None:
+    # Arrange
+    client = make_client()
+
+    # Act
+    response = client.get("/favicon.ico", follow_redirects=False)
+
+    # Assert: las pestañas de PDF o JSON piden /favicon.ico y antes daban 404 en la consola.
+    assert response.status_code == 301
+    assert response.headers["location"] == "/static/logo.svg"
+
+
 def test_los_assets_del_panel_y_del_formateador_se_sirven() -> None:
     # Arrange
     client = make_client()

@@ -151,6 +151,11 @@ async function main() {
   const resultado = { pasos: [], errores: [], consola: [], red: [], axe: {} };
   const contexto = await navegador.newContext({ locale: "es-CO" });
   const pagina = await contexto.newPage();
+  // «Manos libres» vive en el panel plegable «Opciones de voz»: se abre antes de pulsarlo.
+  const abrirOpcionesVoz = () =>
+    pagina.evaluate(() => {
+      document.querySelector("[data-voz-opciones]").open = true;
+    });
   await pagina.addInitScript(INIT_FAKES);
   pagina.on("pageerror", (error) => resultado.errores.push(`pageerror: ${error.message}`));
   pagina.on("console", (mensaje) => {
@@ -336,6 +341,7 @@ async function main() {
 
   // 7. Manos libres: activación, envío único y reescucha tras lectura.
   await pagina.fill("#pregunta", "");
+  await abrirOpcionesVoz();
   await pagina.click("[data-voz-manos-libres]");
   const avisoManos = await pagina.evaluate(
     () => document.querySelector("[data-voz-manos-aviso]").open,
@@ -425,6 +431,7 @@ async function main() {
   const reconocimientosFallo = await pagina.evaluate(
     () => window.__vozE2E.reconocimientos.length,
   );
+  await abrirOpcionesVoz();
   await pagina.click("[data-voz-manos-libres]");
   await pagina.click("[data-voz-manos-aceptar]");
   await esperar(

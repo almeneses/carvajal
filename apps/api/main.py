@@ -417,6 +417,12 @@ def create_app(handlers: Handlers | None = None) -> FastAPI:
 
         return RedirectResponse(url="/chat", status_code=303)
 
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> RedirectResponse:
+        """El navegador pide /favicon.ico en las respuestas sin <link rel=icon> (PDF, JSON)."""
+
+        return RedirectResponse(url="/static/logo.svg", status_code=301)
+
     return app
 
 

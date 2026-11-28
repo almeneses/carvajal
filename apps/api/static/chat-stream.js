@@ -33,6 +33,11 @@
   const SEPARADOR = /\r?\n\r?\n/;
   let enCurso = false;
   let seguir = true;
+  // El historial sigue el final hasta que la persona lo mueve. Al cargar, el compositor y la
+  // cotización cambian de alto después del primer ajuste, y el «scroll» de ese ajuste llegaba
+  // con el final ya lejos: dejaba de seguir y en el teléfono quedaba 110 px arriba con «Ir al
+  // final» visible (auditoría del 2026-11-27).
+  let tocado = false;
   let detenerTurno = null;
 
   input.addEventListener("keydown", (event) => {
@@ -59,7 +64,24 @@
     if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
   });
 
+  for (const tipo of ["wheel", "touchstart", "pointerdown"]) {
+    historial.addEventListener(tipo, () => { tocado = true; }, { passive: true });
+  }
+  // Del teclado solo cuentan las teclas que desplazan; Tab o un atajo no mueven el historial.
+  const teclasDeDesplazamiento = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+  historial.addEventListener("keydown", (event) => {
+    if (teclasDeDesplazamiento.has(event.key)) tocado = true;
+  });
+  // Arrastrar la barra de desplazamiento no siempre emite eventos de puntero (Firefox): todo
+  // scroll que sube cuenta como de la persona, porque los ajustes del código solo bajan.
+  let ultimaPosicion = historial.scrollTop;
   historial.addEventListener("scroll", () => {
+    if (historial.scrollTop < ultimaPosicion - 4) tocado = true;
+    ultimaPosicion = historial.scrollTop;
+    if (seguir && !tocado) {
+      ajustarHistorial();
+      return;
+    }
     seguir = cercaDelFinal();
     actualizarAccesoAlFinal();
   }, { passive: true });
