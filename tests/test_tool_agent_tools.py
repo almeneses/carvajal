@@ -3238,3 +3238,72 @@ def test_cotizar_sin_temperatura_deja_el_producto_pendiente_en_una_tarjeta() -> 
             "city": "Bogotá",
         }
     ]
+
+
+def test_cotizar_con_precio_de_otra_ciudad_nombra_las_sedes_de_la_pedida() -> None:
+    # Arrange: prueba de cotización del 2026-11-27: «las sedes de Cali del directorio son
+    # dónde consultarla», sin nombrar ninguna.
+    context = ToolContext(question="cotiza 100 vasos para bebida caliente en Cali")
+    args = {
+        "family": "vaso",
+        "use": "bebida_caliente",
+        "temperature": "caliente",
+        "quantity": 100,
+        "city": "Cali",
+    }
+
+    # Act
+    result = _run("cotizar", args, context=context)
+
+    # Assert
+    message = result.payload["message"]
+    assert "Sedes de Cali del directorio donde consultarla: Bonniplast" in message
+    assert "no digas que hay sedes sin decir cuáles" in message
+
+
+def test_cotizar_un_vaso_deja_su_capacidad_para_la_tapa() -> None:
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "vaso", "use": "bebida_caliente", "quantity": 20, "city": "Bogotá"},
+        context=ToolContext(question="cotiza 20 vasos para bebida caliente en Bogotá"),
+    )
+
+    # Assert
+    assert result.context_update["cup_capacity_oz"] == 9.0
+
+
+def test_una_tapa_sin_capacidad_tras_un_vaso_se_cotiza_para_ese_vaso() -> None:
+    # Arrange: «agrega 100 tapas» tras el vaso de 9 oz: antes salía la tapa de un plato.
+    context = ToolContext(
+        question="agrega 100 tapas",
+        commercial_context={"family": "vaso", "city": "Bogotá", "cup_capacity_oz": 9.0},
+    )
+
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "tapa", "quantity": 100, "city": "Bogotá", "temperature": "caliente"},
+        context=context,
+    )
+
+    # Assert
+    assert _data(result)["capacidad_del_vaso"] == 9.0
+    names = [quote["primary"]["name"] for quote in result.quotes]
+    assert not any("plato" in name.lower() for name in names)
+
+
+def test_otro_producto_olvida_la_capacidad_del_vaso() -> None:
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "cubierto", "quantity": 2000, "city": "Bogotá"},
+        context=ToolContext(
+            question="cotiza 2000 cubiertos en Bogotá",
+            commercial_context={"cup_capacity_oz": 9.0},
+        ),
+    )
+
+    # Assert
+    assert result.status == "ok"
+    assert result.context_update["cup_capacity_oz"] is None

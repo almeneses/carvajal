@@ -43,6 +43,7 @@ from carvajal.agent.followup import (
     Choice,
     ChoiceOutOfRange,
     ReferencePick,
+    edited_line_number,
     is_cancel_all,
     is_confirmation,
     is_leaving,
@@ -687,6 +688,12 @@ def _rules(
         return Reply(render.cart_view(shown), shown)
     if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
         return _edit(draft, now)
+    missing_line = edited_line_number(text)
+    if draft.lines and draft.awaiting in _EDITABLE and (missing_line or 0) > len(draft.lines):
+        # «Cambia la 2» con un solo producto: el agente respondía un genérico («necesito un
+        # dato más», prueba de cotización del 2026-11-27). El carrito numerado y la pregunta.
+        edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
+        return Reply(render.edit_cart(edited, missing=missing_line), edited)
     if draft.lines and draft.awaiting in _EDITABLE:
         changed = _quantity_change(draft, text, requote_fn, now)
         if changed is not None:

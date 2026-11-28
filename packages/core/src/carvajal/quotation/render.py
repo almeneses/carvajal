@@ -305,6 +305,7 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
             "note": "",
             "price_city": primary.get("price_city"),
             "price_origin": primary.get("price_origin"),
+            "price_kind": primary.get("price_kind"),
         }
     ]
     for position, alternative in enumerate(quote.get("alternatives") or [], start=1):
@@ -325,9 +326,23 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "note": str(alternative.get("difference") or ""),
                 "price_city": alternative.get("price_city"),
                 "price_origin": alternative.get("price_origin"),
+                "price_kind": alternative.get("price_kind"),
             }
         )
     return rows
+
+
+REFERENCE_PRICE: Final = "Precio de referencia del catálogo; se confirma con un distribuidor."
+
+
+def _where(row: Mapping[str, Any]) -> str:
+    """Rótulo de la alternativa: precio de otra ciudad o de referencia (no publicado)."""
+
+    if row.get("price_origin"):
+        return f" (precio de {row['price_city']})"
+    if row.get("price_kind") == "convertido":
+        return " (precio de referencia)"
+    return ""
 
 
 def _option_detail(row: Mapping[str, Any]) -> str:
@@ -361,11 +376,15 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     if best.get("price_origin"):
         # Precio publicado en otra ciudad: se dice quién lo publica y dónde.
         lines.append(f"   📍 {best['price_origin']}")
+    elif best.get("price_kind") == "convertido":
+        # Precio del catálogo convertido, no publicado por un vendedor (prueba de cotización
+        # del 2026-11-27: los cubiertos salían sin decirlo).
+        lines.append(f"   📍 {REFERENCE_PRICE}")
     if len(rows) > 1:
         lines += ["", "**Alternativas**"]
         for row in rows[1:]:
             price = format_money(row.get("subtotal"), str(row["currency"])) or "sin precio"
-            where = f" (precio de {row['price_city']})" if row.get("price_origin") else ""
+            where = _where(row)
             lines.append(f"{row['index']}. {row['name']} · {price}{where}")
         lines += ["", "¿Cuál te cotizo? Di **esa** o un número."]
         question = "¿Cuál te cotizo?"
@@ -379,6 +398,8 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     spoken += "."
     if best.get("price_origin") and best.get("price_city"):
         spoken += f" Es el precio publicado en {_say(str(best['price_city']))}."
+    elif best.get("price_kind") == "convertido":
+        spoken += " Es un precio de referencia del catálogo."
     if len(rows) > 1:
         count = len(rows) - 1
         spoken += f" Te dejo {count} alternativa{'s' if count > 1 else ''} por escrito."
@@ -626,12 +647,20 @@ def removed(draft: QuoteDraft, label: str) -> Message:
     return Message("\n".join(lines), spoken)
 
 
-def edit_cart(draft: QuoteDraft) -> Message:
-    """🛒 el carrito numerado y cómo cambiarlo: «Cambiar algo» o «no» al resumen (T5)."""
+def edit_cart(draft: QuoteDraft, *, missing: int | None = None) -> Message:
+    """🛒 el carrito numerado y cómo cambiarlo: «Cambiar algo» o «no» al resumen (T5).
+
+    ``missing`` es el número de una línea que no existe («cambia la 2» con un producto).
+    """
 
     summary = totals(draft.lines)
     last = len(draft.lines)
-    lines = [f"🛒 **Tu cotización · {_count_label(last)}**"]
+    lines = []
+    lead = ""
+    if missing:
+        lead = f"Tu cotización no tiene un producto {missing}: tiene {_count_label(last)}."
+        lines += [lead, ""]
+    lines.append(f"🛒 **Tu cotización · {_count_label(last)}**")
     lines += _cart_lines(draft.lines)
     lines += [
         _partial(draft),
@@ -644,6 +673,8 @@ def edit_cart(draft: QuoteDraft) -> Message:
         f"{_spoken_money(summary.products, summary.currency)}. "
         "¿Qué cambio? Puedo quitar un producto, cambiar una cantidad o agregar otro."
     )
+    if lead:
+        spoken = f"Tu cotización no tiene un producto {missing}. {spoken}"
     return Message("\n".join(lines), spoken)
 
 

@@ -44,6 +44,7 @@ __all__ = [
     "ReferenceAnswer",
     "ReferencePick",
     "SwitchAnswer",
+    "edited_line_number",
     "is_cancel_all",
     "is_confirmation",
     "is_leaving",
@@ -424,6 +425,23 @@ _FROM_LINE: Final = re.compile(
 )
 # El número de una línea («quita la 2», «el producto 3»), no una cantidad.
 _LINE_NUMBER: Final = re.compile(r"\b(?:la|el|linea|producto|numero|#)\s*(\d{1,2})\b")
+
+
+# «Cambia la 2», «quita el producto 3»: el verbo de edición seguido del número de la línea
+# (no «cambia el vaso por el de 9 oz»).
+_EDIT_LINE: Final = re.compile(
+    r"^(?:(?:no|si|oye|espera|mejor|bueno|ok|pues|y)\s+)*"
+    rf"(?:(?:yo\s+)?(?:quiero|quisiera|necesito)\s+)?{_EDIT_VERB}\s+"
+    r"(?:(?:la|el)\s+)?(?:linea\s+|producto\s+|numero\s+|#\s*)?(?:(?:la|el)\s+)?"
+    r"(\d{1,2})\b(?!\s*(?:oz|onzas?|cm|ml|und|unidades|mil|cajas?|paquetes?)\b)"
+)
+
+
+def edited_line_number(text: str) -> int | None:
+    """Número de línea que nombra un cambio («cambia la 2», «quita el producto 3»), o ``None``."""
+
+    found = _EDIT_LINE.match(plain(text))
+    return int(found.group(1)) if found else None
 
 
 def _negated(text: str) -> bool:

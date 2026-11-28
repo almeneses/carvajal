@@ -8,9 +8,12 @@ contenedores») y «eso es todo» registraba una cotización solo con tapas.
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from tests.test_flujos_cotizacion import make_quote
 
 from apps.api.chat.service import _apply_flow
+from carvajal.agent.followup import edited_line_number
+from carvajal.quotation import render
 from carvajal.quotation.draft import QuoteDraft, line_label
 from carvajal.quotation.flow import Pass, Reply, after_turn, before_turn
 
@@ -276,3 +279,74 @@ def test_el_servicio_pasa_los_pendientes_al_borrador_y_no_los_guarda_en_el_turno
     assert [item["family"] for item in draft.pending] == ["vaso"]
     assert len(draft.held) == 1 and draft.lines == ()
     assert result is not None and "pending_quotes" not in result
+
+
+# --- Fallos menores de la misma prueba -------------------------------------------------------
+
+
+def test_cambia_la_2_con_un_solo_producto_muestra_el_carrito() -> None:
+    # Arrange: un producto en el carrito con «¿Algo más?».
+    draft = after_turn(QuoteDraft(), [_container()], "200 contenedores", now=AHORA).draft
+
+    # Act
+    reply = before_turn(draft, "cambia la 2", now=AHORA)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert reply.message.text.startswith("Tu cotización no tiene un producto 2: tiene 1 producto.")
+    assert "1. Contenedor bisagra" in reply.message.text
+    assert reply.draft.awaiting == "algo_mas"
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("cambia la 2", 2),
+        ("quita el producto 3", 3),
+        ("quiero cambiar la 2 a 800", 2),
+        ("borra la línea 4", 4),
+        ("cambia el vaso por el de 9 oz", None),
+        ("cambia la 9 oz por la de 12", None),
+        ("cambia la cantidad a 2 mil", None),
+        ("agrega 2 cajas", None),
+    ],
+)
+def test_el_numero_de_linea_de_un_cambio(texto: str, esperado: int | None) -> None:
+    # Act / Assert
+    assert edited_line_number(texto) == esperado
+
+
+def test_las_opciones_con_precio_de_referencia_lo_dicen() -> None:
+    # Arrange: «cotiza 2000 cubiertos en Bogotá»: precio del catálogo convertido.
+    spec = {
+        "sku": "CUB",
+        "nombre": "Tenedores de plástico PS",
+        "unidades": 2000,
+        "subtotal": 152434,
+        "familia": "cubierto",
+        "alternativas": 1,
+    }
+    quote = make_quote(spec, city="Bogotá")
+    quote["primary"]["price_kind"] = "convertido"
+    quote["alternatives"][0]["price_kind"] = "convertido"
+
+    # Act
+    message = render.options(quote)
+
+    # Assert
+    assert f"📍 {render.REFERENCE_PRICE}" in message.text
+    assert "alternativa 1 · $153.434 (precio de referencia)" in message.text
+    assert "precio de referencia del catálogo" in message.spoken
+
+
+def test_las_opciones_con_precio_publicado_no_dicen_referencia() -> None:
+    # Arrange
+    spec = {"sku": "V", "nombre": "Vaso", "unidades": 20, "subtotal": 3751, "alternativas": 1}
+    quote = make_quote(spec, city="Bogotá")
+    quote["primary"]["price_kind"] = "publicado"
+
+    # Act
+    message = render.options(quote)
+
+    # Assert
+    assert "referencia" not in message.text.lower()

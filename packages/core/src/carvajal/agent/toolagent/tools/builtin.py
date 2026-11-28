@@ -1607,6 +1607,18 @@ def _quote(
     if origin is None or not (args.sku or args.nombre):
         # Sin referencia nombrada, la que se cotiza (si hay) es la del contexto.
         origin = "contexto" if filled.sku else ""
+    cup_capacity = commercial_context.get(CUP_CAPACITY_KEY)
+    lid_for_cup = bool(
+        filled.family == "tapa"
+        and filled.capacity_oz is None
+        and not (filled.sku or filled.nombre)
+        and isinstance(cup_capacity, (int, float))
+        and cup_capacity > 0
+    )
+    if lid_for_cup:
+        # «Agrega 100 tapas» tras cotizar un vaso: la tapa de ese vaso, no la más barata de
+        # cualquier envase (salía la de 12 a 20 oz, la de un plato y la de una cazuela).
+        filled = filled.model_copy(update={"capacity_oz": cup_capacity})
     if filled.microwave is None and microwave_for(context.question, filled.family):
         # Misma red de seguridad que ``buscar_producto``: el microondas lo pidió la persona.
         filled = filled.model_copy(update={"microwave": True})
@@ -1636,6 +1648,8 @@ def _quote(
         # y descartaría sin motivo el PP y el PET de bebida fría.
         request = filled.model_copy(update={"temperature": temperature})
     base: dict[str, Any] = {"reutilizado": reused}
+    if lid_for_cup:
+        base["capacidad_del_vaso"] = cup_capacity
     if by_use is not None:
         base["familia_por_uso"] = {"familia": by_use.family, "uso": by_use.use}
         base["aviso"] = by_use.notice("se cotizó")
@@ -1731,6 +1745,11 @@ def _quote(
         return draft
     if kind != "cotizacion":
         return _Draft("error", "El motor de cotización no devolvió un resultado válido.")
+    quoted_family = (quoted.get("primary") or {}).get("family") or filled.family
+    if quoted_family == "vaso":
+        update[CUP_CAPACITY_KEY] = (quoted.get("primary") or {}).get("capacity_oz")
+    elif quoted_family != "tapa":
+        update[CUP_CAPACITY_KEY] = None  # otro producto: la próxima tapa no es de ese vaso
 
     # El flujo (``quotation.flow.after_turn``) solo agrega como línea nueva lo que la persona
     # eligió o nombró cuando el turno pregunta algo: necesita saber de dónde salió.
@@ -1753,9 +1772,9 @@ def _quote(
         message = (
             f"Cotización calculada con el precio que publica {primary['seller']} en "
             f"{primary['price_city']}: en {quoted['city']} no hay precio publicado de esta "
-            f"referencia. Dilo así y no lo presentes como precio de {quoted['city']}; las sedes "
-            f"de {quoted['city']} del directorio son dónde consultarla."
+            f"referencia. Dilo así y no lo presentes como precio de {quoted['city']}."
         )
+        message += _local_sites(quoted)
     if source_type == "sistema":
         message = (
             "Cotización calculada con un precio de referencia del catálogo, sin distribuidor: "
@@ -1810,6 +1829,32 @@ def _quote(
 
 
 _NAMED_EMPTY = ("referencia_no_encontrada", "referencia_no_apta")
+
+
+def _local_sites(quoted: Mapping[str, Any]) -> str:
+    """Las sedes de la ciudad pedida, con nombre, para un precio publicado en otra ciudad.
+
+    Antes el mensaje decía que «las sedes del directorio son dónde consultarla» y el modelo
+    las mencionaba sin nombrar ninguna (prueba de cotización del 2026-11-27, Cali).
+    """
+
+    city = str(quoted.get("city") or "")
+    sites = [item for item in quoted.get("providers") or [] if isinstance(item, Mapping)]
+    names = [str(item.get("name") or "") for item in sites if item.get("name")]
+    if not names:
+        return f" No hay sedes de {city} en el directorio: no menciones sedes."
+    shown = ", ".join(names[:_MAX_SITES_NAMED])
+    more = f" y {len(names) - _MAX_SITES_NAMED} más" if len(names) > _MAX_SITES_NAMED else ""
+    return (
+        f" Sedes de {city} del directorio donde consultarla: {shown}{more}. Si mencionas las "
+        "sedes, nómbralas; no digas que hay sedes sin decir cuáles."
+    )
+
+
+_MAX_SITES_NAMED: Final = 3
+# Capacidad del último vaso cotizado: una tapa pedida después sin capacidad («agrega 100
+# tapas») se cotiza para ese vaso (prueba de cotización del 2026-11-27).
+CUP_CAPACITY_KEY: Final = "cup_capacity_oz"
 
 
 def _remember_reference(
