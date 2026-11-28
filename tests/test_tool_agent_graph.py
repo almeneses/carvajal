@@ -1960,3 +1960,24 @@ def test_los_productos_pendientes_de_varias_llamadas_se_acumulan() -> None:
     pending = state["cards"]["pending_quotes"]
     assert [item["family"] for item in pending] == ["vaso", "contenedor"]
     assert all(item["missing"] == ["temperatura"] for item in pending)
+
+
+def test_un_pendiente_repetido_en_el_turno_queda_una_vez() -> None:
+    # Arrange: el modelo repite ``cotizar`` del mismo vaso (revisión de la PR #296).
+    steps = [
+        ScriptStep(
+            tool_calls=[
+                _call("cotizar", "c1", family="vaso", quantity=500, capacity_oz=9, city="Bogotá"),
+                _call("cotizar", "c2", family="vaso", quantity=600, capacity_oz=9, city="Bogotá"),
+            ]
+        ),
+        ScriptStep(text="¿Los vasos son para bebida caliente o fría?"),
+    ]
+    graph, _, _ = _build(steps)
+
+    # Act
+    state = graph.invoke(_input("500 vasos de 9 oz en Bogotá"), _config("hilo-repetido"))
+
+    # Assert
+    pending = state["cards"]["pending_quotes"]
+    assert [(item["family"], item["quantity"]) for item in pending] == [("vaso", 600)]

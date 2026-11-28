@@ -704,8 +704,9 @@ def _rules(
         and resolve_more(text) in ("close", "close_confirm")
         and not wants_edit(text)
     ):
-        # «Eso es todo» mientras un producto espera su dato (sin «¿Algo más?» pendiente).
-        return _close(draft, now)
+        # «Eso es todo» mientras un producto espera su dato (sin «¿Algo más?» pendiente). Lo
+        # último mostrado sale del borrador, como en los cierres desde las opciones.
+        return _close(draft, now, options=(), comparison=(), current=None, **_NO_CHOICES)
     handler = _AWAITING.get(draft.awaiting or "")
     if handler is not None:
         handled = handler(draft, text, said, requote_fn, now)
@@ -1408,8 +1409,15 @@ def _track_pending(
 
     quoted = {line_family(item) for item in calculated}
     kept = tuple(item for item in draft.pending if item.get("family") not in quoted)
-    fresh = [_pending_item(item) for item in pending]
-    fresh = [item for item in fresh if item is not None and item["family"] not in quoted]
+    # Un producto por familia: el modelo puede repetir ``cotizar`` del mismo producto en el
+    # turno (revisión de la PR #296); queda la última tarjeta.
+    by_family: dict[str, dict[str, Any]] = {}
+    for card in pending:
+        item = _pending_item(card)
+        if item is not None and item["family"] not in quoted:
+            by_family.pop(item["family"], None)
+            by_family[item["family"]] = item
+    fresh = list(by_family.values())
     families = {item["family"] for item in fresh} | quoted | {i["family"] for i in kept}
     if fresh and (len(families) >= 2 or draft.lines or kept or draft.held):
         new_families = {item["family"] for item in fresh}
@@ -1422,12 +1430,15 @@ def _track_pending(
     cups = any(line_family(item) == "vaso" for item in (*calculated, *draft.lines))
     if cups and held:
         held_skus = {_sku(item) for item in held}
+        # Si el turno ya trae una tapa, esa reemplaza a la que esperaba (no entran dos); si
+        # no, entra la que esperaba. Sin origen, ``_unfit_lids`` la mide contra el vaso.
+        lid_in_turn = any(line_family(item) == "tapa" for item in calculated)
         released = [
             {**item, "reference_origin": ""} if _sku(item) in held_skus else item
             for item in calculated
         ]
-        present = {_sku(item) for item in released}
-        released += [{**item, "reference_origin": ""} for item in held if _sku(item) not in present]
+        if not lid_in_turn:
+            released += [{**item, "reference_origin": ""} for item in held]
         calculated = released
         held = []
         logger.info("cotizacion.tapas_liberadas")
@@ -1475,7 +1486,8 @@ def _sku(item: Mapping[str, Any]) -> str:
 def _with_pending_note(outcome: Outcome, earlier: Sequence[Mapping[str, Any]]) -> Outcome:
     """Recuerda al final del turno los pendientes de turnos anteriores que siguen sin dato."""
 
-    still = [item for item in outcome.draft.pending if item in earlier]
+    families = {item.get("family") for item in earlier}
+    still = [item for item in outcome.draft.pending if item.get("family") in families]
     if not still or outcome.draft.awaiting in ORDER_AWAITING:
         return outcome
     note = render.pending_note(still, held=len(outcome.draft.held))

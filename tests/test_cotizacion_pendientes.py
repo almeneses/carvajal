@@ -5,11 +5,12 @@ vaso no se cotizaba ni se guardaba, la tapa entraba sola en el turno siguiente (
 contenedores») y «eso es todo» registraba una cotización solo con tapas.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from tests.test_flujos_cotizacion import make_quote
+from tests.test_flujos_cotizacion import fake_requote, make_quote
 
 from apps.api.chat.service import _apply_flow
 from carvajal.agent.followup import edited_line_number
@@ -350,3 +351,99 @@ def test_las_opciones_con_precio_publicado_no_dicen_referencia() -> None:
 
     # Assert
     assert "referencia" not in message.text.lower()
+
+
+# --- Revisión de la PR #296 ------------------------------------------------------------------
+
+
+def test_un_producto_repetido_en_el_turno_queda_una_sola_vez() -> None:
+    # Act: el modelo repite ``cotizar`` del vaso en el mismo turno.
+    draft = after_turn(
+        QuoteDraft(),
+        [_lid()],
+        "500 vasos de 9 oz y 300 tapas para esos vasos",
+        now=AHORA,
+        asks=True,
+        pending=[VASO_PENDIENTE, {**VASO_PENDIENTE, "quantity": 600}],
+    ).draft
+
+    # Assert
+    assert [item["label"] for item in draft.pending] == ["600 vasos de 9 oz"]
+
+
+def test_si_el_turno_trae_otra_tapa_no_entra_tambien_la_que_esperaba() -> None:
+    # Arrange: espera la tapa T9; el turno del vaso trae otra tapa (otro SKU) que le sirve.
+    draft = _primer_turno()
+    otra = _lid("Tapa para vaso de papel 9 oz blanca")
+    otra["primary"]["sku"] = "T9B"
+
+    # Act
+    outcome = after_turn(draft, [_cup(), otra], "caliente", now=AHORA)
+
+    # Assert
+    tapas = [line for line in outcome.draft.lines if line_label(line).startswith("Tapa")]
+    assert [line_label(line) for line in tapas] == ["Tapa para vaso de papel 9 oz blanca"]
+    assert outcome.draft.held == ()
+
+
+def test_el_recordatorio_sigue_tras_guardar_y_leer_el_borrador() -> None:
+    # Arrange: el servicio guarda el borrador en la base entre turnos.
+    draft = QuoteDraft.from_json(_primer_turno().to_json())
+
+    # Act
+    outcome = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    )
+
+    # Assert
+    assert outcome.message is not None
+    assert "**500 vasos de 9 oz**" in outcome.message.text
+
+
+def test_eso_es_todo_con_pendientes_limpia_lo_ultimo_mostrado() -> None:
+    # Arrange: un borrador con pendientes y opciones a la vista, sin pregunta del flujo.
+    draft = _primer_turno()
+    draft = after_turn(draft, [_container()], "agrega 200 contenedores", now=AHORA).draft
+    draft = replace(draft, awaiting=None, options=(_container(),), current={"family": "vaso"})
+    asked = before_turn(draft, "eso es todo", now=AHORA)
+    assert isinstance(asked, Reply)
+
+    # Act
+    reply = before_turn(asked.draft, "eso es todo", now=AHORA)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert asked.draft.options == () and asked.draft.current is None
+    assert reply.draft.awaiting == "confirmar" and reply.draft.choices == ()
+
+
+def test_liberar_las_tapas_no_vuelve_a_preguntar_lo_ya_preguntado() -> None:
+    # Arrange: vaso y contenedor pendientes, tapa en espera; «eso es todo» ya preguntó.
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+    asked = before_turn(draft, "eso es todo", now=AHORA)
+    assert isinstance(asked, Reply) and asked.draft.pending_asked
+
+    # Act: se cotiza el vaso (salen las tapas); el contenedor sigue pendiente.
+    outcome = after_turn(asked.draft, [_cup()], "caliente", now=AHORA)
+
+    # Assert
+    assert outcome.draft.held == ()
+    assert [item["family"] for item in outcome.draft.pending] == ["contenedor"]
+    assert outcome.draft.pending_asked
+
+
+def test_cambia_la_2_a_800_con_dos_productos_cambia_la_cantidad() -> None:
+    # Arrange
+    draft = after_turn(QuoteDraft(), [_container(), _cup()], "contenedores y vasos", now=AHORA)
+    assert len(draft.draft.lines) == 2
+
+    # Act
+    reply = before_turn(draft.draft, "cambia la 2 a 800", now=AHORA, requote_fn=fake_requote)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert "no tiene un producto" not in reply.message.text
+    assert "800" in reply.message.text

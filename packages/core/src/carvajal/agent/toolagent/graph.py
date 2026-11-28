@@ -980,8 +980,14 @@ def build_tool_agent(
         progress.sources = result.sources
         progress.quotes = result.quotes
         for key, value in result.cards.items():
-            if key == "pending_quotes":  # una por producto del turno: se acumulan
-                progress.cards[key] = [*progress.cards.get(key, []), *value]
+            if key == "pending_quotes":  # una por familia del turno: se acumulan
+                families = {item.get("family") for item in value}
+                earlier = [
+                    item
+                    for item in progress.cards.get(key, [])
+                    if item.get("family") not in families
+                ]
+                progress.cards[key] = [*earlier, *value]
             else:
                 progress.cards[key] = value
         if progress.quotes:
