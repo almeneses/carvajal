@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 860" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Troquel de una caja de cartón desplegada (como Carva antes de armarse): corte continuo, pliegue punteado y marcas de registro de imprenta. -->
+  <g transform="rotate(-9 360 430)">
+    <!-- Cartón: relleno kraft muy tenue bajo el troquel -->
+    <path fill="#c89b6a" fill-opacity=".05" d="M90 250h580v260H90zM210 130h170v120H210zM500 510h170v120H500zM60 280l30-18v236l-30-18z"/>
+    <!-- Corte (línea continua) -->
+    <g stroke="#003a5d" stroke-opacity=".26" stroke-width="1.6">
+      <path d="M90 262 60 280v200l30 18"/>
+      <path d="M90 250v-45q4-26 34-28l74 8 12 65"/>
+      <path d="M210 250V130h170v120"/>
+      <path d="M210 130v-18q0-17 17-17h136q17 0 17 17v18"/>
+      <path d="M380 250l8-62q4-22 28-20l70 8q14 2 14 18v56"/>
+      <path d="M500 250h170v260"/>
+      <path d="M90 510v58q0 14 14 16l70 8q22 2 26-18l10-64"/>
+      <path d="M210 510h170"/>
+      <path d="M380 510l12 64q4 18 26 16l68-6q14-2 14-16v-58"/>
+      <path d="M500 510v120h170V510"/>
+      <path d="M500 630v18q0 17 17 17h136q17 0 17-17v-18"/>
+    </g>
+    <!-- Pliegue (línea punteada) -->
+    <g stroke="#003a5d" stroke-opacity=".22" stroke-width="1.3" stroke-dasharray="7 6">
+      <path d="M90 250v260M210 250v260M380 250v260M500 250v260"/>
+      <path d="M90 250h580M90 510h580"/>
+      <path d="M210 130h170M500 630h170"/>
+    </g>
+    <!-- Media caña de pegado y cotas -->
+    <g stroke="#00b5e5" stroke-opacity=".32" stroke-width="1.2">
+      <path d="M210 60h170M210 52v16M380 52v16"/>
+      <path d="M720 250v260M712 250h16M712 510h16" stroke-opacity=".22"/>
+    </g>
+    <!-- Marcas de registro (homenaje a la imprenta de 1904) -->
+    <g stroke="#072b46" stroke-opacity=".24" stroke-width="1.1">
+      <circle cx="40" cy="120" r="11"/>
+      <path d="M22 120h36M40 102v36"/>
+      <circle cx="690" cy="760" r="11"/>
+      <path d="M672 760h36M690 742v36"/>
+      <path d="M20 40h34M40 20v34M700 40h-34M680 20v34M20 820h34M40 840v-34"/>
+    </g>
+    <!-- Flecha de dirección de la fibra -->
+    <g stroke="#c89b6a" stroke-opacity=".55" stroke-width="1.4">
+      <path d="M560 330v120M550 342l10-12 10 12"/>
+    </g>
+  </g>
+</svg>

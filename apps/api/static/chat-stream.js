@@ -33,6 +33,11 @@
   const SEPARADOR = /\r?\n\r?\n/;
   let enCurso = false;
   let seguir = true;
+  // El historial sigue el final hasta que la persona lo mueve. Al cargar, el compositor y la
+  // cotización cambian de alto después del primer ajuste, y el «scroll» de ese ajuste llegaba
+  // con el final ya lejos: dejaba de seguir y en el teléfono quedaba 110 px arriba con «Ir al
+  // final» visible (auditoría del 2026-11-27).
+  let tocado = false;
   let detenerTurno = null;
 
   input.addEventListener("keydown", (event) => {
@@ -59,7 +64,14 @@
     if ("chatEnviar" in sugerencia.dataset) form.requestSubmit?.();
   });
 
+  for (const tipo of ["wheel", "touchstart", "pointerdown", "keydown"]) {
+    historial.addEventListener(tipo, () => { tocado = true; }, { passive: true });
+  }
   historial.addEventListener("scroll", () => {
+    if (seguir && !tocado) {
+      ajustarHistorial();
+      return;
+    }
     seguir = cercaDelFinal();
     actualizarAccesoAlFinal();
   }, { passive: true });

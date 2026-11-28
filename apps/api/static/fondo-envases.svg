@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 1060" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Envases de Carvajal Empaques en línea fina: vaso con tapa y faja, contenedor con bisagra, caja de comida y bowl de pulpa. -->
+  <g stroke="#003a5d" stroke-opacity=".24" stroke-width="1.6">
+    <!-- Vaso para café con tapa y faja kraft -->
+    <g transform="translate(150 40) rotate(7 80 140)">
+      <path d="M22 70h116l-18 210H40Z" fill="#ffffff" fill-opacity=".35"/>
+      <path d="M14 56h132q6 0 6 7v7H8v-7q0-7 6-7Z"/>
+      <path d="M30 56l8-22h84l8 22"/>
+      <path d="M68 34v-6h24v6"/>
+      <path d="M40 280h80"/>
+    </g>
+    <!-- Contenedor con bisagra (clamshell) -->
+    <g transform="translate(40 400) rotate(-6 140 90)">
+      <path d="M20 96h240l-22 74H42Z" fill="#ffffff" fill-opacity=".35"/>
+      <path d="M12 96h256"/>
+      <path d="M28 96 50 24q4-10 16-10h148q12 0 16 10l22 72"/>
+      <path d="M62 40h156M58 56h164" stroke-opacity=".14"/>
+      <path d="M268 96l10 6-10 8"/>
+    </g>
+    <!-- Caja de comida para llevar con asa -->
+    <g transform="translate(170 640) rotate(5 80 110)">
+      <path d="M20 70h120l-14 140H34Z" fill="#ffffff" fill-opacity=".35"/>
+      <path d="M20 70 8 20l46 18 26-30 26 30 46-18-12 50"/>
+      <path d="M54 38l26 32 26-32"/>
+      <path d="M40 22q40-46 80 0"/>
+    </g>
+    <!-- Bowl de pulpa con tapa -->
+    <g transform="translate(30 890) rotate(-4 90 70)">
+      <path d="M10 60h170q-6 74-85 80Q16 134 10 60Z" fill="#ffffff" fill-opacity=".35"/>
+      <path d="M4 60h182"/>
+      <path d="M18 60q10-34 77-34t77 34"/>
+      <path d="M86 26v-8h18v8"/>
+    </g>
+  </g>
+  <!-- Faja kraft del vaso y fibras del bowl -->
+  <g stroke="#c89b6a" stroke-opacity=".6" stroke-width="1.6">
+    <g transform="translate(150 40) rotate(7 80 140)">
+      <path d="M29 140h102l-5 62H35Z" fill="#c89b6a" fill-opacity=".16"/>
+    </g>
+    <g transform="translate(30 890) rotate(-4 90 70)" stroke-opacity=".4" stroke-dasharray="2 7">
+      <path d="M30 84q65 14 130 0M44 106q51 10 102 0"/>
+    </g>
+  </g>
+  <!-- Vapor del café en cian -->
+  <g stroke="#00b5e5" stroke-opacity=".3" stroke-width="1.5" transform="translate(150 40) rotate(7 80 140)">
+    <path d="M62 14q-8-12 0-24t0-24M86 10q-8-12 0-24t0-24"/>
+  </g>
+</svg>

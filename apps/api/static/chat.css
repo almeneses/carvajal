@@ -26,12 +26,96 @@ body:has(> .ancho-chat) {
   padding-bottom: 8px;
 }
 
-/* Fondo mate de Stitch con una luz azul suave arriba, para que el chat no se vea plano. */
+/* Fondo «Empaque y kraft» del chat: el oficio de Carvajal Empaques detrás de la conversación.
+   Dos capas fijas que no se desplazan
+   con el hilo: ::before lleva la luz azul de arriba, el calor kraft de las esquinas y las lomas
+   de cartón corrugado de la base; ::after, el troquel de la caja desplegada (Carva antes de
+   armarse) a la izquierda y los envases en línea fina a la derecha, con una máscara que deja
+   el centro del hilo en calma. Todo es contraste bajo: los turnos, tarjetas y compositor son
+   superficies blancas con borde y el fondo solo asoma entre ellos. */
 body:has(> .ancho-chat) {
+  isolation: isolate;
+  background: var(--fondo-pagina);
+}
+
+body:has(> .ancho-chat)::before,
+body:has(> .ancho-chat)::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+body:has(> .ancho-chat)::before {
   background:
-    radial-gradient(70rem 30rem at 50% -8rem, var(--superficie-alta), transparent 70%),
-    radial-gradient(40rem 24rem at 100% 110%, #f3eadf, transparent 70%),
-    var(--fondo-pagina);
+    radial-gradient(64rem 26rem at 50% -9rem, rgb(0 181 229 / 12%), transparent 70%),
+    radial-gradient(90rem 34rem at 50% -6rem, var(--superficie-alta), transparent 72%),
+    url("/static/fondo-corrugado.svg") center bottom / 100% clamp(110px, 24vh, 260px) no-repeat,
+    radial-gradient(44rem 26rem at 0% 108%, rgb(200 155 106 / 22%), transparent 70%),
+    radial-gradient(44rem 26rem at 100% 108%, rgb(200 155 106 / 22%), transparent 70%),
+    linear-gradient(var(--fondo-pagina) 55%, #f6f1ea);
+}
+
+body:has(> .ancho-chat)::after {
+  inset: -24px 0;
+  background:
+    url("/static/fondo-troquel.svg") left max(-150px, calc(4vw - 220px)) top clamp(90px, 16vh, 170px) /
+      auto clamp(380px, 68vh, 920px) no-repeat,
+    url("/static/fondo-envases.svg") right max(-40px, calc(5vw - 110px)) top clamp(84px, 13vh, 150px) /
+      auto clamp(380px, 78vh, 1080px) no-repeat;
+  /* El centro, donde corre el hilo, queda limpio: los motivos solo viven en los costados. */
+  mask-image: linear-gradient(90deg, #000 6%, rgb(0 0 0 / 35%) 15%, transparent 24% 76%, rgb(0 0 0 / 35%) 85%, #000 94%);
+  animation: fondo-empaque-deriva 64s ease-in-out infinite alternate;
+}
+
+/* Deriva casi imperceptible: el cartón «respira» 12 px en un minuto (solo transform). */
+@keyframes fondo-empaque-deriva {
+  from {
+    transform: translate3d(0, 12px, 0);
+  }
+
+  to {
+    transform: translate3d(0, -12px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(> .ancho-chat)::after {
+    animation: none;
+  }
+}
+
+/* Entre tableta y escritorio angosto el hilo casi llena la pantalla: los motivos se retiran
+   hacia el borde y bajan aún más. */
+@media (max-width: 1023px) {
+  body:has(> .ancho-chat)::after {
+    opacity: 0.7;
+    mask-image: linear-gradient(90deg, #000 3%, transparent 14% 86%, #000 97%);
+  }
+}
+
+/* Teléfono: sin costados útiles, queda la luz, el kraft y las lomas corrugadas. */
+@media (max-width: 560px) {
+  body:has(> .ancho-chat)::after {
+    display: none;
+  }
+
+  body:has(> .ancho-chat)::before {
+    background:
+      radial-gradient(30rem 16rem at 50% -5rem, rgb(0 181 229 / 10%), transparent 70%),
+      radial-gradient(40rem 20rem at 50% -4rem, var(--superficie-alta), transparent 72%),
+      url("/static/fondo-corrugado.svg") center bottom / 220% clamp(90px, 16vh, 150px) no-repeat,
+      radial-gradient(24rem 16rem at 0% 108%, rgb(200 155 106 / 20%), transparent 70%),
+      linear-gradient(var(--fondo-pagina) 55%, #f6f1ea);
+  }
+}
+
+/* Pantallas bajas (teléfono en horizontal): las lomas se achatan y los motivos se encogen. */
+@media (max-height: 560px) {
+  body:has(> .ancho-chat)::before {
+    background-size: auto, auto, 100% 72px, auto, auto, auto;
+  }
 }
 
 .conversacion {

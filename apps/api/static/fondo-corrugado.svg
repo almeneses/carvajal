@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 240" preserveAspectRatio="none" fill="none">
+  <!-- Base de la página: lomas suaves de kraft (la «cordillera» de Stitch) con la onda del cartón corrugado entre dos liners. -->
+  <path fill="#c89b6a" fill-opacity=".09" d="M0 120C180 70 330 64 520 104s360 66 560 20 280-52 360-36V240H0Z"/>
+  <path fill="#f3eadf" fill-opacity=".85" d="M0 168c220-40 420-52 640-26s420 42 600 6c80-16 140-18 200-10v102H0Z"/>
+  <g stroke="#c89b6a" stroke-width="1.4" vector-effect="non-scaling-stroke">
+    <path stroke-opacity=".38" d="M0 196c220-40 420-52 640-26s420 42 600 6c80-16 140-18 200-10"/>
+    <path stroke-opacity=".10" stroke-width="14" stroke-dasharray="1.2 7" d="M0 205c220-40 420-52 640-26s420 42 600 6c80-16 140-18 200-10"/>
+    <path stroke-opacity=".24" d="M0 214c220-40 420-52 640-26s420 42 600 6c80-16 140-18 200-10"/>
+  </g>
+  <path stroke="#00b5e5" stroke-opacity=".18" stroke-width="1.2" vector-effect="non-scaling-stroke" d="M0 140C180 90 330 84 520 124s360 66 560 20 280-52 360-36"/>
+</svg>
