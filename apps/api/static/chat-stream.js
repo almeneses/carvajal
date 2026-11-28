@@ -72,7 +72,12 @@
   historial.addEventListener("keydown", (event) => {
     if (teclasDeDesplazamiento.has(event.key)) tocado = true;
   });
+  // Arrastrar la barra de desplazamiento no siempre emite eventos de puntero (Firefox): todo
+  // scroll que sube cuenta como de la persona, porque los ajustes del código solo bajan.
+  let ultimaPosicion = historial.scrollTop;
   historial.addEventListener("scroll", () => {
+    if (historial.scrollTop < ultimaPosicion - 4) tocado = true;
+    ultimaPosicion = historial.scrollTop;
     if (seguir && !tocado) {
       ajustarHistorial();
       return;
