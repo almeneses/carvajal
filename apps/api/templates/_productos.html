@@ -298,7 +298,7 @@
       <ul class="producto-ofertas">
         {%- for oferta in opcion.offers %}
         {%- set valor = oferta.total or oferta.price_per_box %}
-        {%- set clave = [valor, oferta.source_type, oferta.source_name, oferta.tax_status] | join("|") %}
+        {%- set clave = [valor, oferta.source_type, oferta.source_name, oferta.tax_status, oferta.notice] | join("|") %}
         {%- if clave not in vistas.claves %}
         {%- set vistas.claves = vistas.claves + [clave] %}
         <li class="producto-oferta">
