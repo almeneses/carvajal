@@ -525,3 +525,21 @@ def test_listo_tras_antes_de_cerrar_no_vuelve_a_pedir_el_dato(texto: str) -> Non
 
     # Assert
     assert not (isinstance(reply, Reply) and reply.message.text.startswith("Perfecto. Dime"))
+
+
+def test_un_cambio_con_el_carrito_vacio_no_va_al_modelo() -> None:
+    # Arrange: tercera corrida (2026-11-28): el modelo respondió «Ajusté la línea 1 a 600…»
+    # con el carrito vacío (el vaso y el contenedor pendientes, la tapa en espera).
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+    assert draft.awaiting is None
+
+    # Act
+    reply = before_turn(draft, "eso es todo, pero cambia la cantidad de la 1 a 600", now=AHORA)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert reply.message.text.startswith("Tu cotización todavía no tiene productos que cambiar")
+    assert reply.draft.pending == draft.pending

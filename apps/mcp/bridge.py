@@ -895,7 +895,8 @@ def drop_orphan_citations(text: str, sources: Iterable[Mapping[str, Any]]) -> st
 
 
 _SKU_SAID: Final = re.compile(r"\bSKU\s*:?\s*([A-Z0-9][A-Z0-9-]{3,})", re.I)
-_SENTENCE: Final = re.compile(r"[^.!?\n]*(?:[.!?]+|\n|$)")
+# Frases: el punto entre cifras («81.616 COP») no corta la frase.
+_SENTENCE: Final = re.compile(r"(?:[^.!?\n]|\.(?=\d))*(?:[.!?]+|\n|$)")
 _PRODUCT_PREFIXES: Final = ("catalogo", "precio", "ficha")
 
 
@@ -920,10 +921,19 @@ def _plain_text(text: str) -> str:
 
 
 def _named_in(name: str, folded: str) -> bool:
-    """El producto de la fuente se nombra en la frase (sus tres primeras palabras, al menos)."""
+    """El producto de la fuente se nombra en la frase.
+
+    Cuenta el nombre hasta su capacidad («tapa viajera 9 a 12 oz»), o sus tres primeras
+    palabras si no la trae: tres palabras solas no distinguen el «Vaso rígido traslúcido 9 oz»
+    del de 7 oz (tercera corrida de la prueba de cotizaciones, 2026-11-28).
+    """
 
     words = name.split()
-    return len(words) >= 2 and " ".join(words[:3]) in folded
+    if len(words) < 2:
+        return False
+    size = next((i for i, word in enumerate(words) if word in {"oz", "onzas"}), None)
+    prefix = words[: size + 1] if size is not None else words[:3]
+    return " ".join(prefix) in folded
 
 
 def align_citations(text: str, sources: Sequence[Mapping[str, Any]]) -> str:
