@@ -908,6 +908,24 @@ def _source_sku(source: Mapping[str, Any]) -> str:
     return ""
 
 
+def _source_product(source: Mapping[str, Any]) -> str:
+    """Nombre del producto de una fuente, sin el vendedor («EDEXA: …», «Precio de …: …»)."""
+
+    return _plain_text(str(source.get("title") or "").rsplit(": ", 1)[-1])
+
+
+def _plain_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return " ".join("".join(c for c in decomposed if not unicodedata.combining(c)).split())
+
+
+def _named_in(name: str, folded: str) -> bool:
+    """El producto de la fuente se nombra en la frase (sus tres primeras palabras, al menos)."""
+
+    words = name.split()
+    return len(words) >= 2 and " ".join(words[:3]) in folded
+
+
 def align_citations(text: str, sources: Sequence[Mapping[str, Any]]) -> str:
     """Corrige la cita de una frase que nombra un SKU y cita la fuente de otro producto.
 
@@ -935,6 +953,8 @@ def align_citations(text: str, sources: Sequence[Mapping[str, Any]]) -> str:
             sheets.setdefault(sku, number)
     first.update(sheets)
 
+    names = {number: _source_product(source) for number, source in numbered}
+
     def fix(sentence: str) -> str:
         said = {match.upper() for match in _SKU_SAID.findall(sentence)}
         said |= {
@@ -942,13 +962,16 @@ def align_citations(text: str, sources: Sequence[Mapping[str, Any]]) -> str:
             for sku in known
             if re.search(rf"(?<![\w-]){re.escape(sku)}(?![\w-])", sentence, re.I)
         }
-        if not said:
+        # Solo frases de un producto: con dos citas distintas («el vaso … [1] va con la tapa
+        # … [2]») cada una puede ser de un producto distinto (revisión de la PR #297).
+        if not said or len(set(_CITE.findall(sentence))) > 1:
             return sentence
+        folded = _plain_text(sentence)
 
         def swap(match: re.Match[str]) -> str:
             number = int(match.group(1))
             sku = sku_of.get(number, "")
-            if not sku or sku in said:
+            if not sku or sku in said or _named_in(names.get(number, ""), folded):
                 return match.group(0)
             target = next((first[item] for item in sorted(said) if item in first), None)
             return f"[{target}]" if target is not None else ""

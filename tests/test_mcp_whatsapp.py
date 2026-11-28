@@ -1015,3 +1015,46 @@ def test_una_frase_sin_sku_conserva_su_cita() -> None:
 
     # Assert
     assert "El vaso de 9 oz es de PP [1]. Y el de 6 oz, EPS [2]." in answer
+
+
+def test_una_frase_con_dos_productos_conserva_sus_citas() -> None:
+    # Arrange: revisión de la PR #297: la cita de la tapa no pasa a la fuente del vaso.
+    sources = [
+        {"title": "Vaso 9 oz", "url": "https://c.co/v", "n": 1, "chunk_id": "catalogo:CO-VRP-09"},
+        {
+            "title": "Precio de referencia del catálogo: Tapa viajera 9 a 12 oz para vaso Bioform",
+            "url": "https://c.co/t",
+            "n": 2,
+            "chunk_id": "catalogo:CO-TVIA-0912",
+        },
+    ]
+    text = "El vaso (SKU CO-VRP-09) [1] va con la tapa viajera 9 a 12 oz [2]."
+    chat = FakeChat(events=_turn(text, sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("vaso y tapa", "+57300")
+
+    # Assert
+    assert text in answer
+
+
+def test_la_cita_del_producto_nombrado_por_su_nombre_no_cambia() -> None:
+    # Arrange: la frase dice el SKU del vaso y nombra la tapa, con una sola cita (la tapa).
+    sources = [
+        {"title": "Vaso 9 oz", "url": "https://c.co/v", "n": 1, "chunk_id": "catalogo:CO-VRP-09"},
+        {
+            "title": "Tapa viajera 9 a 12 oz para vaso Bioform",
+            "url": "https://c.co/t",
+            "n": 2,
+            "chunk_id": "catalogo:CO-TVIA-0912",
+        },
+    ]
+    text = "Para el vaso (SKU CO-VRP-09) sirve la Tapa viajera 9 a 12 oz [2]."
+    chat = FakeChat(events=_turn(text, sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("tapa", "+57300")
+
+    # Assert
+    assert "sirve la Tapa viajera 9 a 12 oz [1]." in answer  # la [2] de la tapa, renumerada
+    assert "[1] Tapa viajera 9 a 12 oz para vaso Bioform" in answer

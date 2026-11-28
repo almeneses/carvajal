@@ -507,3 +507,21 @@ def test_la_tapa_de_otra_linea_no_entra_mientras_se_eligen_los_vasos() -> None:
     assert outcome.draft.lines == ()
     assert outcome.message is not None
     assert outcome.message.text.startswith("No agregué **Tapa viajera 9 a 12 oz")
+
+
+@pytest.mark.parametrize("texto", ["listo", "ok", "dale"])
+def test_listo_tras_antes_de_cerrar_no_vuelve_a_pedir_el_dato(texto: str) -> None:
+    # Arrange: revisión de la PR #297: «listo» u «ok» no se toman como un «sí» que repite
+    # la pregunta (podrían querer cerrar).
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+    asked = before_turn(draft, "eso es todo", now=AHORA)
+    assert isinstance(asked, Reply)
+
+    # Act
+    reply = before_turn(asked.draft, texto, now=AHORA)
+
+    # Assert
+    assert not (isinstance(reply, Reply) and reply.message.text.startswith("Perfecto. Dime"))

@@ -866,9 +866,9 @@ def _on_more(
     return None
 
 
-_BARE_YES: Final = frozenset(
-    {"si", "sip", "claro", "dale", "ok", "listo", "bueno", "va", "si claro"}
-)
+# Solo afirmaciones que no se leen como cerrar: «listo», «ok» o «dale» quedan fuera, porque
+# tras «Antes de cerrar» también pueden querer decir que ya está (revisión de la PR #297).
+_BARE_YES: Final = frozenset({"si", "sip", "claro", "si claro"})
 
 
 def _bare_yes(text: str) -> bool:
