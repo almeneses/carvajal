@@ -55,6 +55,10 @@ __all__ = [
     "options",
     "out_of_range",
     "pdf_offer",
+    "pending_close",
+    "pending_dropped",
+    "pending_label",
+    "pending_note",
     "receipt_offer",
     "reference_out_of_range",
     "registered",
@@ -301,6 +305,7 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
             "note": "",
             "price_city": primary.get("price_city"),
             "price_origin": primary.get("price_origin"),
+            "price_kind": primary.get("price_kind"),
         }
     ]
     for position, alternative in enumerate(quote.get("alternatives") or [], start=1):
@@ -321,9 +326,23 @@ def option_rows(quote: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "note": str(alternative.get("difference") or ""),
                 "price_city": alternative.get("price_city"),
                 "price_origin": alternative.get("price_origin"),
+                "price_kind": alternative.get("price_kind"),
             }
         )
     return rows
+
+
+REFERENCE_PRICE: Final = "Precio de referencia del catálogo; se confirma con un distribuidor."
+
+
+def _where(row: Mapping[str, Any]) -> str:
+    """Rótulo de la alternativa: precio de otra ciudad o de referencia (no publicado)."""
+
+    if row.get("price_origin"):
+        return f" (precio de {row['price_city']})"
+    if row.get("price_kind") == "convertido":
+        return " (precio de referencia)"
+    return ""
 
 
 def _option_detail(row: Mapping[str, Any]) -> str:
@@ -357,11 +376,15 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     if best.get("price_origin"):
         # Precio publicado en otra ciudad: se dice quién lo publica y dónde.
         lines.append(f"   📍 {best['price_origin']}")
+    elif best.get("price_kind") == "convertido":
+        # Precio del catálogo convertido, no publicado por un vendedor (prueba de cotización
+        # del 2026-11-27: los cubiertos salían sin decirlo).
+        lines.append(f"   📍 {REFERENCE_PRICE}")
     if len(rows) > 1:
         lines += ["", "**Alternativas**"]
         for row in rows[1:]:
             price = format_money(row.get("subtotal"), str(row["currency"])) or "sin precio"
-            where = f" (precio de {row['price_city']})" if row.get("price_origin") else ""
+            where = _where(row)
             lines.append(f"{row['index']}. {row['name']} · {price}{where}")
         lines += ["", "¿Cuál te cotizo? Di **esa** o un número."]
         question = "¿Cuál te cotizo?"
@@ -375,6 +398,8 @@ def options(quote: Mapping[str, Any], *, reason: str = "") -> Message:
     spoken += "."
     if best.get("price_origin") and best.get("price_city"):
         spoken += f" Es el precio publicado en {_say(str(best['price_city']))}."
+    elif best.get("price_kind") == "convertido":
+        spoken += " Es un precio de referencia del catálogo."
     if len(rows) > 1:
         count = len(rows) - 1
         spoken += f" Te dejo {count} alternativa{'s' if count > 1 else ''} por escrito."
@@ -622,12 +647,20 @@ def removed(draft: QuoteDraft, label: str) -> Message:
     return Message("\n".join(lines), spoken)
 
 
-def edit_cart(draft: QuoteDraft) -> Message:
-    """🛒 el carrito numerado y cómo cambiarlo: «Cambiar algo» o «no» al resumen (T5)."""
+def edit_cart(draft: QuoteDraft, *, missing: int | None = None) -> Message:
+    """🛒 el carrito numerado y cómo cambiarlo: «Cambiar algo» o «no» al resumen (T5).
+
+    ``missing`` es el número de una línea que no existe («cambia la 2» con un producto).
+    """
 
     summary = totals(draft.lines)
     last = len(draft.lines)
-    lines = [f"🛒 **Tu cotización · {_count_label(last)}**"]
+    lines = []
+    lead = ""
+    if missing:
+        lead = f"Tu cotización no tiene un producto {missing}: tiene {_count_label(last)}."
+        lines += [lead, ""]
+    lines.append(f"🛒 **Tu cotización · {_count_label(last)}**")
     lines += _cart_lines(draft.lines)
     lines += [
         _partial(draft),
@@ -640,6 +673,8 @@ def edit_cart(draft: QuoteDraft) -> Message:
         f"{_spoken_money(summary.products, summary.currency)}. "
         "¿Qué cambio? Puedo quitar un producto, cambiar una cantidad o agregar otro."
     )
+    if lead:
+        spoken = f"Tu cotización no tiene un producto {missing}. {spoken}"
     return Message("\n".join(lines), spoken)
 
 
@@ -1013,6 +1048,98 @@ def lids_not_added(labels: Sequence[str]) -> Message:
         f"{'las' if many else 'la'} quieres igual, pídemel{'as' if many else 'a'} por su nombre."
     )
     return Message(text, f"No agregué {said}: {serve} a tus vasos.")
+
+
+# --- productos pendientes (a la espera de un dato) -----------------------------------------
+
+# (plural, artículo, femenino) por familia del catálogo.
+_FAMILY_NOUN: Final = {
+    "vaso": ("vasos", "los", False),
+    "tapa": ("tapas", "las", True),
+    "contenedor": ("contenedores", "los", False),
+    "charola": ("bandejas", "las", True),
+    "cubierto": ("cubiertos", "los", False),
+    "envase": ("envases", "los", False),
+    "plato": ("platos", "los", False),
+}
+
+
+def _noun(family: str) -> tuple[str, str, bool]:
+    return _FAMILY_NOUN.get(family, (family or "productos", "los", False))
+
+
+def pending_label(item: Mapping[str, Any]) -> str:
+    """«500 vasos de 9 oz» de un producto pendiente (sin artículo)."""
+
+    noun, _article, _feminine = _noun(str(item.get("family") or ""))
+    quantity = item.get("quantity")
+    label = f"{format_units(quantity)} {noun}" if isinstance(quantity, int) and quantity else noun
+    capacity = item.get("capacity_oz")
+    if isinstance(capacity, (int, float)) and capacity:
+        label += f" de {capacity:g} oz"
+    return label
+
+
+def _pending_ask(item: Mapping[str, Any], *, bold: bool = True) -> str:
+    """Qué falta de un producto pendiente, como subordinada: «si los 500 vasos … son …»."""
+
+    family = str(item.get("family") or "")
+    _noun_text, article, feminine = _noun(family)
+    label = str(item.get("label") or pending_label(item))
+    name = f"{article} **{label}**" if bold else f"{article} {label}"
+    missing = [str(part) for part in item.get("missing") or []]
+    if "temperatura" in missing:
+        if family == "vaso":
+            return f"si {name} son para bebida caliente o fría"
+        return f"si la comida de {name} va caliente o fría"
+    if "cantidad" in missing:
+        many = "cuántas" if feminine else "cuántos"
+        return f"{many} unidades de {name} necesitas"
+    if "ciudad" in missing:
+        return f"en qué ciudad cotizo {name}"
+    return f"un dato de {name}"
+
+
+def _pending_list(items: Sequence[Mapping[str, Any]], *, bold: bool = True) -> str:
+    asks = [_pending_ask(item, bold=bold) for item in items]
+    if len(asks) == 1:
+        return asks[0]
+    return "; ".join(asks[:-1]) + f" y {asks[-1]}"
+
+
+def _held_text(held: int) -> str:
+    if not held:
+        return ""
+    return " Las tapas para esos vasos las agrego cuando los cotice."
+
+
+def pending_note(items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Message:
+    """↩️ Lo que sigue esperando un dato de un turno anterior (no se pierde)."""
+
+    text = f"↩️ También me falta saber {_pending_list(items)}.{_held_text(held)}"
+    return Message(text, f"También me falta saber {_pending_list(items, bold=False)}.")
+
+
+def pending_close(items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Message:
+    """«Eso es todo» con productos pendientes: se pregunta antes de cerrar sin ellos."""
+
+    text = (
+        f"Antes de cerrar: me falta saber {_pending_list(items)}.{_held_text(held)} "
+        "Dímelo y lo agrego, o di **eso es todo** otra vez y la cierro sin eso."
+    )
+    spoken = (
+        f"Antes de cerrar, me falta saber {_pending_list(items, bold=False)}. Dímelo y lo "
+        "agrego, o di eso es todo otra vez y la cierro sin eso."
+    )
+    return Message(text, spoken)
+
+
+def pending_dropped(items: Sequence[Mapping[str, Any]], *, held: int = 0) -> str:
+    """Nota del resumen cuando se cierra sin los pendientes."""
+
+    labels = ", ".join(f"**{item.get('label') or pending_label(item)}**" for item in items)
+    lids = " ni las tapas que esperaban esos vasos" if held else ""
+    return f"Cerré sin {labels}{lids}: les faltaba un dato."
 
 
 def order_receipt(order: str, folio: str) -> Message:

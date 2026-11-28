@@ -43,6 +43,7 @@ from carvajal.agent.followup import (
     Choice,
     ChoiceOutOfRange,
     ReferencePick,
+    edited_line_number,
     is_cancel_all,
     is_confirmation,
     is_leaving,
@@ -687,10 +688,25 @@ def _rules(
         return Reply(render.cart_view(shown), shown)
     if draft.lines and draft.awaiting in _EDITABLE and wants_change(text):
         return _edit(draft, now)
+    missing_line = edited_line_number(text)
+    if draft.lines and draft.awaiting in _EDITABLE and (missing_line or 0) > len(draft.lines):
+        # «Cambia la 2» con un solo producto: el agente respondía un genérico («necesito un
+        # dato más», prueba de cotización del 2026-11-27). El carrito numerado y la pregunta.
+        edited = draft.touch(now, awaiting="algo_mas", state="carrito", off_flow=0)
+        return Reply(render.edit_cart(edited, missing=missing_line), edited)
     if draft.lines and draft.awaiting in _EDITABLE:
         changed = _quantity_change(draft, text, requote_fn, now)
         if changed is not None:
             return changed
+    if (
+        draft.pending
+        and draft.awaiting is None
+        and resolve_more(text) in ("close", "close_confirm")
+        and not wants_edit(text)
+    ):
+        # «Eso es todo» mientras un producto espera su dato (sin «¿Algo más?» pendiente). Lo
+        # último mostrado sale del borrador, como en los cierres desde las opciones.
+        return _close(draft, now, options=(), comparison=(), current=None, **_NO_CHOICES)
     handler = _AWAITING.get(draft.awaiting or "")
     if handler is not None:
         handled = handler(draft, text, said, requote_fn, now)
@@ -776,6 +792,34 @@ def _edit_request(draft: QuoteDraft, text: str, said: str, now: datetime) -> Rep
     return Pass(editing, prompt=strip_assent(said))
 
 
+def _close(draft: QuoteDraft, now: datetime, **changes: Any) -> Reply:
+    """«Eso es todo»: el resumen para confirmar, o antes la pregunta por los pendientes.
+
+    Con productos esperando un dato, la primera vez se pregunta por ellos (no se pierden en
+    silencio, prueba del 2026-11-27); la segunda se cierra sin ellos y el resumen lo dice.
+    Nada se registra aquí: el resumen pide el «sí».
+    """
+
+    if draft.pending and not draft.pending_asked:
+        asked = draft.touch(
+            now, state="carrito", awaiting="algo_mas", pending_asked=True, off_flow=0, **changes
+        )
+        logger.info("cotizacion.cierre_con_pendientes", pendientes=len(draft.pending))
+        return Reply(render.pending_close(draft.pending, held=len(draft.held)), asked)
+    note = render.pending_dropped(draft.pending, held=len(draft.held)) if draft.pending else ""
+    cleared = {"pending": (), "held": (), "pending_asked": False}
+    if not draft.lines:
+        emptied = draft.touch(now, awaiting=None, **cleared, **changes)
+        empty = render.empty_cart()
+        if note:
+            empty = render.Message(
+                f"{note}\n\n{empty.text}", f"{note.replace('**', '')} {empty.spoken}"
+            )
+        return Reply(empty, emptied)
+    closed = draft.touch(now, state="resumen", awaiting="confirmar", **cleared, **changes)
+    return Reply(render.summary(closed, note=note), closed)
+
+
 def _register_or_refresh(draft: QuoteDraft, requote_fn: Requote, now: datetime) -> Reply | Pass:
     stale = expired_lines(draft, now.date())
     if not stale:
@@ -801,11 +845,8 @@ def _on_more(
     if wants_edit(text):  # antes que cerrar o agregar: «eso es todo, pero quita la 2»
         return _edit_request(draft, text, said, now)
     more = resolve_more(text)
-    if more == "close":
-        if not draft.lines:
-            return Reply(render.empty_cart(), draft.touch(now, awaiting=None))
-        closed = draft.touch(now, state="resumen", awaiting="confirmar")
-        return Reply(render.summary(closed), closed)
+    if more == "close" or (more == "close_confirm" and draft.pending):
+        return _close(draft, now)
     if more == "close_confirm" and draft.lines:
         return _register_or_refresh(draft, requote_fn, now)
     if more == "add":
@@ -866,13 +907,10 @@ def _on_choice(
     if found is None and resolve_more(text) in ("close", "close_confirm"):
         # «Eso es todo» ante «¿Cuál te cotizo?» no elige la recomendada: con carrito va al
         # resumen; sin él, la persona no quiso ninguna y se despide como «lo pienso».
-        if draft.lines:
+        if draft.lines or draft.pending:
             # También «eso es todo, confírmala»: el resumen pide el «sí» (nada se registra
             # mientras se elegía entre opciones).
-            closed = draft.touch(
-                now, state="resumen", awaiting="confirmar", options=(), comparison=(), current=None
-            )
-            return Reply(render.summary(closed), closed)
+            return _close(draft, now, options=(), comparison=(), current=None)
         paused = draft.touch(now, state="explorando", awaiting=None, options=(), offer=None)
         return Reply(render.leaving(False), paused, route="salida")
     if found is None:
@@ -955,9 +993,8 @@ def _on_reference(
         if resolve_more(text) not in ("close", "close_confirm"):
             return None
         # «Eso es todo» ante la lista no elige ninguna: como ante unas opciones.
-        if draft.lines:
-            closed = draft.touch(now, state="resumen", awaiting="confirmar", **_NO_CHOICES)
-            return Reply(render.summary(closed), closed)
+        if draft.lines or draft.pending:
+            return _close(draft, now, **_NO_CHOICES)
         paused = draft.touch(now, state="explorando", awaiting=None, **_NO_CHOICES)
         return Reply(render.leaving(False), paused, route="salida")
     if isinstance(found, ChoiceOutOfRange):
@@ -1218,8 +1255,14 @@ def after_turn(
     now: datetime | None = None,
     choice: Mapping[str, Any] | None = None,
     asks: bool = False,
+    pending: Sequence[Mapping[str, Any]] = (),
 ) -> Outcome:
     """Lo que el flujo agrega al turno del agente según las cotizaciones que calculó.
+
+    ``pending`` son las tarjetas ``pending_quotes`` de ``cotizar``: productos del turno a los
+    que les falta un dato. En una solicitud con varios productos (o con el carrito abierto) se
+    guardan en el borrador hasta que se cotizan, las tapas que les tocan esperan al vaso y el
+    flujo recuerda lo que falta (:func:`_track_pending`).
 
     ``choice`` es la tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre
     ambiguo y la solicitud): sin cotizaciones en el turno, deja la lista esperando respuesta.
@@ -1239,6 +1282,21 @@ def after_turn(
         else:
             return _order_off_flow(draft, moment)
     current = _fresh_after_registration(draft)
+    current, calculated, earlier = _track_pending(current, calculated, pending)
+    outcome = _after_pending(current, calculated, text, moment, choice, asks)
+    return _with_pending_note(outcome, earlier)
+
+
+def _after_pending(
+    current: QuoteDraft,
+    calculated: list[dict[str, Any]],
+    text: str,
+    moment: datetime,
+    choice: Mapping[str, Any] | None,
+    asks: bool,
+) -> Outcome:
+    """:func:`after_turn` con los pendientes ya resueltos: retener, medir tapas y ubicar."""
+
     several = {str(item["primary"].get("sku") or "") for item in calculated}
     if asks and not (len(calculated) >= 2 and len(several) == 1):  # un comparativo no agrega
         asked = named_families(text)
@@ -1324,6 +1382,123 @@ def _place(
         return Outcome(changed, message, flow=True)
     changed, message = _present(current, calculated[0], moment)
     return Outcome(changed, message, flow=True)
+
+
+# --- productos pendientes -----------------------------------------------------------------
+
+
+def _track_pending(
+    draft: QuoteDraft,
+    calculated: list[dict[str, Any]],
+    pending: Sequence[Mapping[str, Any]],
+) -> tuple[QuoteDraft, list[dict[str, Any]], tuple[dict[str, Any], ...]]:
+    """Pendientes del borrador tras el turno: ``(borrador, cotizaciones, pendientes previos)``.
+
+    - Un pendiente se resuelve cuando su familia se cotiza.
+    - Los ``pending`` del turno se guardan si hay más de un producto en juego (otro
+      pendiente, otra cotización del turno o el carrito): un solo producto sin su dato ya lo
+      pregunta el agente.
+    - Mientras haya un vaso pendiente y ningún vaso a la vista, las tapas que no nombró la
+      persona esperan en ``held``: «300 tapas para esos vasos» no entra sola al carrito.
+    - Cuando el vaso se cotiza, las tapas que esperaban vuelven al turno sin su origen, para
+      medirse contra él (:func:`_unfit_lids`).
+
+    Los pendientes previos que siguen sin resolver se devuelven para recordarlos en el texto;
+    los del turno no, porque el agente ya los preguntó.
+    """
+
+    quoted = {line_family(item) for item in calculated}
+    kept = tuple(item for item in draft.pending if item.get("family") not in quoted)
+    # Un producto por familia: el modelo puede repetir ``cotizar`` del mismo producto en el
+    # turno (revisión de la PR #296); queda la última tarjeta.
+    by_family: dict[str, dict[str, Any]] = {}
+    for card in pending:
+        item = _pending_item(card)
+        if item is not None and item["family"] not in quoted:
+            by_family.pop(item["family"], None)
+            by_family[item["family"]] = item
+    fresh = list(by_family.values())
+    families = {item["family"] for item in fresh} | quoted | {i["family"] for i in kept}
+    if fresh and (len(families) >= 2 or draft.lines or kept or draft.held):
+        new_families = {item["family"] for item in fresh}
+        kept_before = tuple(item for item in kept if item["family"] not in new_families)
+        merged = (*kept_before, *fresh)
+    else:
+        kept_before = kept
+        merged = kept
+    held = list(draft.held)
+    cups = any(line_family(item) == "vaso" for item in (*calculated, *draft.lines))
+    if cups and held:
+        held_skus = {_sku(item) for item in held}
+        # Si el turno ya trae una tapa, esa reemplaza a la que esperaba (no entran dos); si
+        # no, entra la que esperaba. Sin origen, ``_unfit_lids`` la mide contra el vaso.
+        lid_in_turn = any(line_family(item) == "tapa" for item in calculated)
+        released = [
+            {**item, "reference_origin": ""} if _sku(item) in held_skus else item
+            for item in calculated
+        ]
+        if not lid_in_turn:
+            released += [{**item, "reference_origin": ""} for item in held]
+        calculated = released
+        held = []
+        logger.info("cotizacion.tapas_liberadas")
+    elif any(item.get("family") == "vaso" for item in merged) and not cups:
+        waiting = [
+            item
+            for item in calculated
+            if line_family(item) == "tapa" and item.get("reference_origin") != "persona"
+        ]
+        if waiting:
+            skus = {_sku(item) for item in waiting}
+            held = [item for item in held if _sku(item) not in skus] + waiting
+            calculated = [item for item in calculated if item not in waiting]
+            logger.info("cotizacion.tapas_en_espera", tapas=len(waiting))
+    changed = tuple(merged) != draft.pending or tuple(held) != draft.held
+    if changed:
+        draft = replace(
+            draft,
+            pending=tuple(merged),
+            held=tuple(held),
+            # Un pendiente nuevo tras preguntar vuelve a preguntarse antes de cerrar.
+            pending_asked=draft.pending_asked and bool(merged) and merged == kept_before,
+        )
+        logger.info("cotizacion.pendientes", pendientes=len(merged), en_espera=len(held))
+    return draft, calculated, kept_before
+
+
+def _pending_item(card: Mapping[str, Any]) -> dict[str, Any] | None:
+    family = str(card.get("family") or "")
+    missing = [str(item) for item in card.get("missing") or [] if item]
+    if not family or not missing:
+        return None
+    item: dict[str, Any] = {"family": family, "missing": missing}
+    for key in ("quantity", "capacity_oz", "city"):
+        if card.get(key) not in (None, ""):
+            item[key] = card[key]
+    item["label"] = render.pending_label(item)
+    return item
+
+
+def _sku(item: Mapping[str, Any]) -> str:
+    return str(_mapping(item.get("primary")).get("sku") or "")
+
+
+def _with_pending_note(outcome: Outcome, earlier: Sequence[Mapping[str, Any]]) -> Outcome:
+    """Recuerda al final del turno los pendientes de turnos anteriores que siguen sin dato."""
+
+    families = {item.get("family") for item in earlier}
+    still = [item for item in outcome.draft.pending if item.get("family") in families]
+    if not still or outcome.draft.awaiting in ORDER_AWAITING:
+        return outcome
+    note = render.pending_note(still, held=len(outcome.draft.held))
+    if outcome.message is None:
+        return replace(outcome, message=note)
+    joined = render.Message(
+        f"{outcome.message.text}\n\n{note.text}",
+        f"{outcome.message.spoken} {note.spoken}",
+        outcome.message.photos,
+    )
+    return replace(outcome, message=joined)
 
 
 # Referencias que la persona nombró o eligió (ver ``_reference_origin`` de ``cotizar``).

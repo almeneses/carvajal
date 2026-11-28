@@ -894,6 +894,32 @@ def drop_orphan_citations(text: str, sources: Iterable[Mapping[str, Any]]) -> st
     return re.sub(r"[ \t]+([.,;:)])", r"\1", cleaned)
 
 
+def renumber_citations(
+    text: str, sources: Sequence[Mapping[str, Any]]
+) -> tuple[str, list[Mapping[str, Any]]]:
+    """Las citas del texto renumeradas desde 1, con sus fuentes («[2]» sola pasa a «[1]»).
+
+    El registro del turno numera todas las fuentes consultadas; si el texto cita solo
+    algunas, WhatsApp mostraba «[2]» sin un «[1]» (prueba de cotización del 2026-11-27, «200
+    vasos en Pasto»). Sin citas, nada cambia.
+    """
+
+    numbered = _numbered(sources)
+    known = {number for number, _ in numbered}
+    cited = sorted({int(n) for n in _CITE.findall(text or "")} & known)
+    if not cited or cited == list(range(1, len(cited) + 1)):
+        return text, list(sources)
+    mapping = {old: new for new, old in enumerate(cited, start=1)}
+    renumbered = _CITE.sub(
+        lambda m: f"[{mapping[int(m.group(1))]}]" if int(m.group(1)) in mapping else m.group(0),
+        text,
+    )
+    kept: list[Mapping[str, Any]] = [
+        {**source, "n": mapping[number]} for number, source in numbered if number in mapping
+    ]
+    return renumbered, kept
+
+
 def _listed_sources(sources: Iterable[Mapping[str, Any]], text: str = "") -> list[tuple[str, str]]:
     """Pares ``(título, url)`` de las fuentes que lista :func:`_sources_block`."""
 
@@ -1478,9 +1504,10 @@ class WhatsAppBridge:
         )
         prose = quote_remarks(turn.text, quoted) if quotes else turn.text
         prose = drop_orphan_citations(prose, turn.sources)
+        prose, sources = renumber_citations(prose, turn.sources)
         if prose.strip():
             blocks.append(to_whatsapp(prose))
-        listed = _sources_block(turn.sources, prose)
+        listed = _sources_block(sources, prose)
         if listed:
             blocks.append(listed)
         pdf_enabled = self.pdf_link is not None or self.pdf_attachment is not None
@@ -1496,7 +1523,7 @@ class WhatsAppBridge:
                 spoken.append(SpokenReply("", to_speech(turn.text).links))
             spoken.extend(spoken_quote(view, photo) for view, photo in quotes)
             if listed:
-                spoken.append(_spoken_sources(turn.sources, prose))
+                spoken.append(_spoken_sources(sources, prose))
             # El folio, la presentación con su precio y el subtotal van por escrito.
             closing = PDF_OFFER_SPOKEN if offer else SUMMARY_POINTERS["whatsapp"]
             spoken.append(SpokenReply(closing, omitted=True))
@@ -1506,11 +1533,11 @@ class WhatsAppBridge:
                 spoken_summary(
                     drop_orphan_citations(turn.text, turn.sources),
                     channel="whatsapp",
-                    sources=_listed_sources(turn.sources, prose),
+                    sources=_listed_sources(sources, prose),
                 )
             )
         elif listed:
-            spoken.append(_spoken_sources(turn.sources, prose))
+            spoken.append(_spoken_sources(sources, prose))
         if turn.error is not None:
             # Corte después del primer token: el turno quedó guardado como incompleto.
             blocks.append("_(La respuesta quedó incompleta; vuelve a preguntarme.)_")
@@ -1556,9 +1583,10 @@ class WhatsAppBridge:
         remarks = quote_remarks(prose, template) if prose else ""
         blocks: list[str] = []
         remarks = drop_orphan_citations(remarks, turn.sources)
+        remarks, sources = renumber_citations(remarks, turn.sources)
         if remarks.strip():
             blocks.append(to_whatsapp(remarks))
-        listed = _sources_block(turn.sources, remarks)
+        listed = _sources_block(sources, remarks)
         if listed:
             blocks.append(listed)
         written = self._with_receipt(to_whatsapp(template), turn.flow, owner)

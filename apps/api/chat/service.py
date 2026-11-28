@@ -2464,23 +2464,29 @@ def _apply_flow(
 ) -> tuple[dict[str, Any] | None, QuoteDraft, str]:
     """Cotizaciones del turno → borrador y mensaje de la plantilla (``"\n\n…"`` o ``""``).
 
-    La tarjeta ``reference_choice`` de ``cotizar`` (candidatas de un nombre ambiguo) solo
-    alimenta el borrador: no se guarda en el historial ni se pinta. ``answer`` es el texto
+    Las tarjetas ``reference_choice`` (candidatas de un nombre ambiguo) y ``pending_quotes``
+    (productos a los que les falta un dato) de ``cotizar`` solo alimentan el borrador: no se
+    guardan en el historial ni se pintan. ``answer`` es el texto
     del agente en el turno: si pregunta algo, el flujo no agrega líneas que la persona no
     eligió (:func:`carvajal.quotation.flow.asks_question`).
     """
 
     choice = (products or {}).get("reference_choice")
+    pending = (products or {}).get("pending_quotes")
     outcome = quote_flow.after_turn(
         draft,
         result_quotes(products),
         question,
         choice=choice if isinstance(choice, Mapping) else None,
         asks=quote_flow.asks_question(answer),
+        pending=[item for item in pending if isinstance(item, Mapping)]
+        if isinstance(pending, list)
+        else (),
     )
     result = _mark_draft_quotes(products)
     if result is not None:
         result.pop("reference_choice", None)
+        result.pop("pending_quotes", None)
     if outcome.message is None:
         if outcome.draft.awaiting == "referencia" and outcome.draft.choices:
             # El agente ya listó las candidatas: sin texto propio, solo los botones «La 1»…

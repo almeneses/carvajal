@@ -159,6 +159,16 @@ class QuoteDraft:
     # vuelve si la respuesta a la lista no elige ninguna.
     resume_awaiting: Awaiting | None = None
     current: dict[str, Any] | None = None  # producto en curso {"family", "label"}
+    # Productos de una solicitud con varios a los que les falta un dato («500 vasos de 9 oz y
+    # 300 tapas…» sin la temperatura del vaso): {"family", "label", "missing", "quantity",
+    # "capacity_oz"}. Se recuerdan hasta que se cotizan y «eso es todo» pregunta por ellos
+    # antes de cerrar (prueba de cotización del 2026-11-27).
+    pending: tuple[dict[str, Any], ...] = ()
+    # Tapas que esperan el vaso pendiente al que van: entran (y se miden contra él) cuando
+    # el vaso se cotiza.
+    held: tuple[dict[str, Any], ...] = ()
+    # «Eso es todo» ya preguntó por los pendientes: el siguiente cierra sin ellos.
+    pending_asked: bool = False
     pending_request: str | None = None  # pedido nuevo mientras se pregunta el cambio
     switch_drops_last: bool = False  # el cambio cancela la última línea, no un producto en curso
     offer: dict[str, Any] | None = None  # opción más económica ofrecida tras «está caro»
@@ -180,7 +190,15 @@ class QuoteDraft:
 
         if self.state in {"registrada", "cancelada"}:
             return False
-        return bool(self.lines or self.options or self.comparison or self.choices or self.current)
+        return bool(
+            self.lines
+            or self.options
+            or self.comparison
+            or self.choices
+            or self.current
+            or self.pending
+            or self.held
+        )
 
     def expired(self, now: datetime | None = None) -> bool:
         if not self.updated_at:
@@ -213,6 +231,8 @@ class QuoteDraft:
         data["options"] = list(self.options)
         data["comparison"] = list(self.comparison)
         data["choices"] = list(self.choices)
+        data["pending"] = list(self.pending)
+        data["held"] = list(self.held)
         return data
 
     @classmethod
@@ -221,7 +241,7 @@ class QuoteDraft:
             return cls()
         known = set(cls.__dataclass_fields__)
         values = {key: value for key, value in data.items() if key in known}
-        for key in ("lines", "options", "comparison", "choices"):
+        for key in ("lines", "options", "comparison", "choices", "pending", "held"):
             raw = values.get(key) or ()
             values[key] = tuple(dict(item) for item in raw if isinstance(item, Mapping))
         request = values.get("choice_request")

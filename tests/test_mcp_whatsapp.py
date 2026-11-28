@@ -142,11 +142,12 @@ def test_turno_con_fuentes_en_formato_whatsapp() -> None:
 
     answer = _bridge(chat).consult("¿Cuándo nació Carvajal?", "+573100000000")
 
-    assert answer.startswith("*Historia*\n*Carvajal* nació en 1904 [1]; informe [3].")
+    # Las citas se renumeran desde 1: «[3]» sin «[2]» pasa a «[2]».
+    assert answer.startswith("*Historia*\n*Carvajal* nació en 1904 [1]; informe [2].")
     assert "*Fuentes:*" in answer
     assert "[1] Historia de Carvajal — https://www.carvajal.com/historia" in answer
     assert answer.count("carvajal.com/historia") == 1
-    assert "[3] Sostenibilidad" in answer
+    assert "[2] Sostenibilidad" in answer
     assert chat.calls == [(owner_key_for("+573100000000", SECRET), "¿Cuándo nació Carvajal?")]
 
 
@@ -709,8 +710,10 @@ def test_las_fuentes_listadas_son_las_que_cita_el_texto() -> None:
     block = answer.split("*Fuentes:*", 1)[1]
     assert f"[1] Sede Dispapeles (Pereira) — {DIRECTORIO}" in block
     assert f"[2] Sede Kive (Pereira) — {DIRECTORIO}" in block
-    assert "[7] Documento 7 — https://carvajal.com/7" in block
-    assert "[3]" not in block and "[8]" not in block
+    # Renumeradas desde 1 (prueba de cotización del 2026-11-27): la [7] pasa a [3].
+    assert "[3] Documento 7 — https://carvajal.com/7" in block
+    assert "Documento 3" not in block and "[4]" not in block
+    assert "nace en 1904 [3]." in answer
 
 
 def test_una_cita_sin_fuente_se_quita_del_texto() -> None:
@@ -722,8 +725,9 @@ def test_una_cita_sin_fuente_se_quita_del_texto() -> None:
     answer = _bridge(chat).consult("platos", "+57300")
 
     # Assert
-    assert "Precio de EDEXA [2]." in answer
-    assert "[11]" not in answer
+    assert "Precio de EDEXA [1]." in answer  # la única cita, renumerada desde 1
+    assert "[1] Plato hondo" in answer
+    assert "[11]" not in answer and "[2]" not in answer
 
 
 def test_dos_citas_de_la_misma_fuente_van_juntas() -> None:
@@ -937,3 +941,21 @@ def test_quitar_una_cita_sin_fuente_no_deja_espacios_sueltos() -> None:
 
     # Assert
     assert answer.startswith("Dos sedes [1], y teléfonos.")
+
+
+def test_una_cita_que_no_empieza_en_1_se_renumera() -> None:
+    # Arrange: «200 vasos en Pasto» (prueba de cotización del 2026-11-27): el texto citaba
+    # solo la sede [2] y WhatsApp mostraba «[2]» sin un «[1]».
+    sources = [
+        {"title": "EDEXA: Vaso rígido traslúcido 9 oz Wau", "url": "https://edexa.co/v", "n": 1},
+        {"title": "Sede Representaciones Lastra Pasto (Pasto)", "url": DIRECTORIO, "n": 2},
+    ]
+    chat = FakeChat(events=_turn("En Pasto hay una sede del directorio [2].", sources=sources))
+
+    # Act
+    answer = _bridge(chat).consult("chocolate caliente, 200 vasos en Pasto", "+57300")
+
+    # Assert
+    assert "En Pasto hay una sede del directorio [1]." in answer
+    assert f"[1] Sede Representaciones Lastra Pasto (Pasto) — {DIRECTORIO}" in answer
+    assert "[2]" not in answer and "EDEXA" not in answer
