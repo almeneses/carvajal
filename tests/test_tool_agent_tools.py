@@ -3307,3 +3307,30 @@ def test_otro_producto_olvida_la_capacidad_del_vaso() -> None:
     # Assert
     assert result.status == "ok"
     assert result.context_update["cup_capacity_oz"] is None
+
+
+def test_la_tapa_de_otra_linea_de_vasos_se_avisa() -> None:
+    # Arrange: el vaso de la conversación es Wau; la tapa de 9 oz que hay es para Bioform.
+    from carvajal.agent.toolagent.tools.builtin import _other_cup_line
+
+    quoted = {"primary": {"name": "Tapa viajera 9 a 12 oz para vaso Bioform"}}
+
+    # Act
+    otra = _other_cup_line(quoted, "Vaso rígido traslúcido 9 oz Wau", 9.0)
+    misma = _other_cup_line(quoted, "Vaso Bioform 9 oz", 9.0)
+
+    # Assert
+    assert "es para otra línea de vasos" in otra
+    assert misma == ""
+
+
+def test_cotizar_un_vaso_deja_su_nombre_para_la_tapa() -> None:
+    # Act
+    result = _run(
+        "cotizar",
+        {"family": "vaso", "use": "bebida_caliente", "quantity": 20, "city": "Bogotá"},
+        context=ToolContext(question="cotiza 20 vasos para bebida caliente en Bogotá"),
+    )
+
+    # Assert
+    assert result.context_update["cup_name"] == result.quotes[0]["primary"]["name"]

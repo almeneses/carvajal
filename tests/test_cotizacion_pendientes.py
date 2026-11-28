@@ -447,3 +447,81 @@ def test_cambia_la_2_a_800_con_dos_productos_cambia_la_cantidad() -> None:
     assert isinstance(reply, Reply)
     assert "no tiene un producto" not in reply.message.text
     assert "800" in reply.message.text
+
+
+# --- Segunda corrida de la prueba contra producción ------------------------------------------
+
+
+def test_cambia_la_2_sin_carrito_y_con_pendientes_pide_lo_que_falta() -> None:
+    # Arrange: vaso y contenedor esperando su dato, nada en el carrito.
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+
+    # Act
+    reply = before_turn(draft, "cambia la 2", now=AHORA)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert reply.message.text.startswith("Tu cotización todavía no tiene un producto 2")
+    assert "**500 vasos de 9 oz** son para bebida caliente o fría" in reply.message.text
+
+
+def test_si_suelto_tras_antes_de_cerrar_vuelve_a_pedir_el_dato() -> None:
+    # Arrange
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+    asked = before_turn(draft, "eso es todo", now=AHORA)
+    assert isinstance(asked, Reply)
+
+    # Act
+    reply = before_turn(asked.draft, "sí", now=AHORA)
+
+    # Assert
+    assert isinstance(reply, Reply)
+    assert not reply.register
+    assert reply.message.text.startswith("Perfecto. Dime si los **500 vasos de 9 oz**")
+    assert "¿Qué producto agregamos?" not in reply.message.text
+    assert reply.draft.pending == asked.draft.pending
+
+
+def test_la_tapa_de_otra_linea_no_entra_mientras_se_eligen_los_vasos() -> None:
+    # Arrange: «cotiza 20 vasos…» deja opciones de vasos Wau («¿Cuál te cotizo?»).
+    vasos = _cup()
+    vasos["primary"]["name"] = "Vaso rígido traslúcido 9 oz Wau"
+    vasos["alternatives"] = [
+        {"sku": "V14", "name": "Vaso rígido traslúcido 14 oz Wau", "capacity_oz": 14.0}
+    ]
+    draft = after_turn(QuoteDraft(), [vasos], "cotiza 20 vasos", now=AHORA).draft
+    assert draft.awaiting == "eleccion"
+    tapa = _lid("Tapa viajera 9 a 12 oz para vaso Bioform")
+    tapa["request"]["capacity_oz"] = 9.0
+
+    # Act: «agrega 100 tapas».
+    outcome = after_turn(draft, [tapa], "agrega 100 tapas", now=AHORA)
+
+    # Assert
+    assert outcome.draft.lines == ()
+    assert outcome.message is not None
+    assert outcome.message.text.startswith("No agregué **Tapa viajera 9 a 12 oz")
+
+
+@pytest.mark.parametrize("texto", ["listo", "ok", "dale"])
+def test_listo_tras_antes_de_cerrar_no_vuelve_a_pedir_el_dato(texto: str) -> None:
+    # Arrange: revisión de la PR #297: «listo» u «ok» no se toman como un «sí» que repite
+    # la pregunta (podrían querer cerrar).
+    draft = _primer_turno()
+    draft = after_turn(
+        draft, [], "agrega 200 contenedores", now=AHORA, asks=True, pending=[CONTENEDOR_PENDIENTE]
+    ).draft
+    asked = before_turn(draft, "eso es todo", now=AHORA)
+    assert isinstance(asked, Reply)
+
+    # Act
+    reply = before_turn(asked.draft, texto, now=AHORA)
+
+    # Assert
+    assert not (isinstance(reply, Reply) and reply.message.text.startswith("Perfecto. Dime"))

@@ -51,6 +51,7 @@ __all__ = [
     "joke",
     "leaving",
     "line_cap",
+    "no_lines_yet",
     "option_rows",
     "options",
     "out_of_range",
@@ -1120,16 +1121,40 @@ def pending_note(items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Messag
     return Message(text, f"También me falta saber {_pending_list(items, bold=False)}.")
 
 
-def pending_close(items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Message:
-    """«Eso es todo» con productos pendientes: se pregunta antes de cerrar sin ellos."""
+def pending_close(
+    items: Sequence[Mapping[str, Any]], *, held: int = 0, again: bool = False
+) -> Message:
+    """«Eso es todo» con productos pendientes: se pregunta antes de cerrar sin ellos.
 
+    ``again``: la persona respondió «sí» sin el dato; se le pide el dato directamente.
+    """
+
+    lead = "Perfecto. Dime" if again else "Antes de cerrar: me falta saber"
+    said_lead = "Perfecto. Dime" if again else "Antes de cerrar, me falta saber"
     text = (
-        f"Antes de cerrar: me falta saber {_pending_list(items)}.{_held_text(held)} "
+        f"{lead} {_pending_list(items)}.{_held_text(held)} "
         "Dímelo y lo agrego, o di **eso es todo** otra vez y la cierro sin eso."
     )
     spoken = (
-        f"Antes de cerrar, me falta saber {_pending_list(items, bold=False)}. Dímelo y lo "
-        "agrego, o di eso es todo otra vez y la cierro sin eso."
+        f"{said_lead} {_pending_list(items, bold=False)}. Dímelo y lo agrego, o di eso es "
+        "todo otra vez y la cierro sin eso."
+    )
+    if again:
+        text = text.replace(" Dímelo y lo agrego, o", " Con eso lo agrego; si prefieres,")
+        spoken = spoken.replace(" Dímelo y lo agrego, o", " Con eso lo agrego; si prefieres,")
+    return Message(text, spoken)
+
+
+def no_lines_yet(number: int, items: Sequence[Mapping[str, Any]], *, held: int = 0) -> Message:
+    """«Cambia la 2» sin productos en el carrito y con productos esperando un dato."""
+
+    text = (
+        f"Tu cotización todavía no tiene un producto {number}: me falta saber "
+        f"{_pending_list(items)} para agregarlos.{_held_text(held)}"
+    )
+    spoken = (
+        f"Tu cotización todavía no tiene un producto {number}. Me falta saber "
+        f"{_pending_list(items, bold=False)}."
     )
     return Message(text, spoken)
 
