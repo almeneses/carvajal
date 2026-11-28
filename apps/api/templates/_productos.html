@@ -71,7 +71,7 @@
   {%- set vistas = namespace(claves=[]) %}
   <ul class="producto-ofertas">
     {%- for oferta in resultado.offers %}
-    {%- set clave = [oferta.amount, oferta.currency, oferta.seller, oferta.seller_kind, oferta.presentation, oferta.tax_status] | join("|") %}
+    {%- set clave = [oferta.amount, oferta.currency, oferta.seller, oferta.seller_kind, oferta.presentation, oferta.tax_status, oferta.tax_rate, oferta.availability, oferta.valid_until] | join("|") %}
     {%- if clave not in vistas.claves %}
     {%- set vistas.claves = vistas.claves + [clave] %}
     <li class="producto-oferta">
